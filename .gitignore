@@ -1,0 +1,5 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+/test_scripts/
+/pecd_data/
+/weather_year_selection/
