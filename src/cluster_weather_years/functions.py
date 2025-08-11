@@ -1,4 +1,5 @@
 import os
+from typing import Sequence
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -20,6 +21,7 @@ from cluster_weather_years.constants import (
 
 
 def build_df():
+    """Build dataframe for NL based on all raw CSV files downloaded from PECD."""
     nl_frames_hourly = []
 
     for model_fname, model_name in zip(MODELS_FNAME, MODELS):
@@ -100,6 +102,30 @@ def build_df():
 
     return df_daily, df_nl_rolling
 
+def standardize_df(
+    df: pd.DataFrame,
+    variables: Sequence[str],
+) -> pd.DataFrame:
+    """
+    Standardise `variables` to zero mean and unit variance (z-score).
+
+    Parameters
+    ----------
+    df : pandas.DataFrame
+        Input dataframe.
+    variables : Sequence[str]
+        Columns to standardise.
+
+    Returns
+    -------
+    pandas.DataFrame
+        Copy of `df` with standardised variables.
+    """
+    df_std = df.copy()
+    df_std[variables] = (df_std[variables] - df_std[variables].mean()) / df_std[
+        variables
+    ].std()
+    return df_std
 
 def calc_clim_and_year_data_multi(df: pd.DataFrame, column: str):
     """
@@ -315,6 +341,46 @@ def plot_clim_per_cluster(df_nl_rolling, yearly_stats, centroid_years, column):
     axes[1].set_xlabel("Day of Year")
     axes[1].set_title(f"{column} cumulative anomaly")
     axes[1].legend(loc="lower left")
+
+    # Add histogram of cumulative anomalies to the right of the second subplot
+
+    # Compute final cumulative anomalies per year and their clusters
+    final_cum_anomalies = np.nansum(nl_matrix - clim_mean.to_numpy(), axis=1)
+    clusters = np.array([yearly_stats["cluster_med"][idx] for idx in row_index])
+
+    # Create a single stacked histogram axis
+    left, bottom, width, height = axes[1].get_position().bounds
+    hist_ax = fig.add_axes([left + width + 0.03, bottom, 0.12, height], sharey=axes[1])
+
+    # Prepare cluster-wise cumulative anomaly values
+    cluster_vals_list = []
+    cluster_labels = []
+    cluster_colors = []
+
+    for cluster_id in range(5):
+        vals = final_cum_anomalies[clusters == cluster_id]
+        if len(vals) == 0:
+            continue
+        cluster_vals_list.append(vals)
+        cluster_labels.append(f"Cluster {cluster_id}")
+        cluster_colors.append(COLORS[cluster_id])
+
+    # Define common bins
+    bins = np.histogram_bin_edges(final_cum_anomalies, bins=20)
+
+    # Plot stacked histogram
+    hist_ax.hist(
+        cluster_vals_list,
+        bins=bins,
+        orientation="horizontal",
+        stacked=True,
+        color=cluster_colors,
+        label=cluster_labels,
+        edgecolor="black",
+    )
+
+    hist_ax.set_xlabel("Count")
+    hist_ax.yaxis.set_tick_params(labelleft=False)
 
 
 def calc_clim_and_year_data(df_nl_rolling, column):

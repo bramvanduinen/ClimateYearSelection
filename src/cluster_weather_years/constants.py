@@ -1,7 +1,7 @@
 # list of constants
 import os
 
-import matplotlib.pyplot as plt
+from matplotlib import cm
 
 YEARS = range(2015, 2045)
 THRES_HDD = 12.3  # values for Austria, taken from Katharina Gruber
@@ -12,9 +12,11 @@ MIN_WINDOW_ROLLING = 7  # minimum amount of days for rolling mean to be non-nan.
 
 NUM_CLUSTERS = 5  # number of clusters to be used by K-Medoids/K-Means
 
-COLORS = plt.cm.tab10.colors
+COLORS = cm.get_cmap("tab10").colors
 
 BASE = "/net/pc230050/nobackup/users/duinen/04_weather_year_selection/pecd_data"
+BASE_OUTPUT = "/usr/people/duinen/04_weather_year_selection/outputs/"
+
 OUTPUT_DIR_WIND = os.path.join(BASE, "wind")
 OUTPUT_DIR_SOLAR = os.path.join(BASE, "solar")
 OUTPUT_DIR_TEMP = os.path.join(BASE, "temp")
