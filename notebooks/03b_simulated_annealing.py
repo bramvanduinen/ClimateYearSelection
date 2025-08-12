@@ -18,7 +18,10 @@ from cluster_weather_years.functions import build_df
 from cluster_weather_years.constants import BASE_OUTPUT, MODELS, YEARS, NUM_CLUSTERS
 
 # %%
+data = "energy" # energy or meteo
+match_vars = "full" # optimize on full (excl residual) or on just residual load
 DF_DAILY_FNAME = os.path.join(BASE_OUTPUT, "dataframes/df_daily.csv")
+DF_PROD_DEMAND_FNAME = os.path.join(BASE_OUTPUT, "dataframes/df_prod_demand_daily.csv")
 OUTPUT_DIR = os.path.join(BASE_OUTPUT, "simulated_annealing")
 # %%
 def standardize_df(
@@ -160,7 +163,7 @@ def simulated_annealing_selection(
     df: pd.DataFrame,
     variables: Sequence[str],
     n_select: int,
-    tails: dict = {"NL_OFF": "low", "NL_ON": "low", "NL_SOLAR": "low", "NL_TEMP": "low"},
+    tails: dict,
     model_col: str = "model",
     year_col: str = "year",
     scoring_fn: Callable[..., float] = ad_total,
@@ -195,20 +198,20 @@ def simulated_annealing_selection(
     best = current.copy()
     if scoring_fn == sa_cost:
         current_score = best_score = scoring_fn(
-            df = df, combos = current, variables = variables, tails=tails
+            df = df, combos = current, variables = variables, tails=tails, model_col=model_col, year_col=year_col
         )
     else:
         current_score = best_score = scoring_fn(
-            df = df, combos = current, variables = variables
+            df = df, combos = current, variables = variables, model_col=model_col, year_col=year_col
         )
 
     if ref_scoring_fn == sa_cost:
         ref_score = ref_scoring_fn(
-            df, current, variables, tails=tails
+            df, current, variables, tails=tails, model_col=model_col, year_col=year_col
         )
     else:
         ref_score = ref_scoring_fn(
-            df, current, variables
+            df, current, variables, model_col=model_col, year_col=year_col
         )
 
     temp = temp_start
@@ -233,11 +236,11 @@ def simulated_annealing_selection(
         neighbour[out_idx] = in_combo
         if scoring_fn == sa_cost:
             neighbour_score = scoring_fn(
-                df = df, combos = neighbour, variables = variables, tails=tails
+                df = df, combos = neighbour, variables = variables, tails=tails, model_col=model_col, year_col=year_col
             )
         else:
             neighbour_score = scoring_fn(
-                df = df, combos = neighbour, variables = variables
+                df = df, combos = neighbour, variables = variables, model_col=model_col, year_col=year_col
             )
 
         delta = neighbour_score - current_score
@@ -248,11 +251,11 @@ def simulated_annealing_selection(
 
         if ref_scoring_fn == sa_cost:
             ref_score = ref_scoring_fn(
-                df, current, variables, tails=tails
+                df, current, variables, tails=tails, model_col=model_col, year_col=year_col
             )
         else:
             ref_score = ref_scoring_fn(
-                df, current, variables
+                df, current, variables, model_col=model_col, year_col=year_col
             )
         log.append(
             {
@@ -268,24 +271,46 @@ def simulated_annealing_selection(
 
 # %%
 # Build NL dataframe
-if not os.path.exists(DF_DAILY_FNAME):
-    print("Calculating df_daily...")
-    df_daily, _ = build_df()
-    df_daily = df_daily.reset_index()
-    df_daily["year"] = df_daily["Date"].dt.year
-    df_daily.to_csv(DF_DAILY_FNAME)
-else:
-    print("Taking df_daily from memory...")
-    df_daily = pd.read_csv(DF_DAILY_FNAME, index_col=0)
+if data == "meteo":
+    if match_vars == "full":
+        vars_to_match = ["NL_OFF", "NL_ON", "NL_SOLAR", "NL_TEMP"]
+        tails = {"NL_OFF": "low", "NL_ON": "low", "NL_SOLAR": "low", "NL_TEMP": "low"}
+    elif match_vars == "residual":
+        vars_to_match = ["Residual_ish"]
+        tails = {"Residual_ish": "high"}
+    print(vars_to_match)
+    if not os.path.exists(DF_DAILY_FNAME):
+        print("Calculating df_daily...")
+        df_daily, _ = build_df()
+        df_daily = df_daily.reset_index()
+        #df_daily["year"] = df_daily["Date"].dt.year
+        df_daily.to_csv(DF_DAILY_FNAME)
+    else:
+        print("Taking df_daily from memory...")
+        df_daily = pd.read_csv(DF_DAILY_FNAME, index_col=0)
 
-vars_to_standardize = ["NL_OFF", "NL_ON", "NL_SOLAR", "NL_TEMP"]
-df_std = standardize_df(df_daily, vars_to_standardize)
-# compute some residual load, but not any weighting yet (e.g. based on capacity). Just to see joint-tail behavior
-df_std["Residual_ish"] = df_std["NL_TEMP"] + (df_std["NL_SOLAR"] + df_std["NL_OFF"] + df_std["NL_ON"])
+    vars_to_standardize = ["NL_OFF", "NL_ON", "NL_SOLAR", "NL_TEMP"]
+    df_std = standardize_df(df_daily, vars_to_standardize)
+    # compute some residual load, but not any weighting yet (e.g. based on capacity). Just to see joint-tail behavior
+    df_std["Residual_ish"] = df_std["NL_TEMP"] + (df_std["NL_SOLAR"] + df_std["NL_OFF"] + df_std["NL_ON"])
+elif data == "energy":
+    print("Taking df_prod_demand_daily from memory...")
+    if match_vars == "full":
+        vars_to_match = ["NL_OFF_prod", "NL_ON_prod", "NL_SOLAR_prod", "Demand"]
+        vars_to_standardize = ["NL_OFF_prod", "NL_ON_prod", "NL_SOLAR_prod", "Demand"]
+        tails = {"NL_OFF_prod": "low", "NL_ON_prod": "low", "NL_SOLAR_prod": "low", "Demand": "high"}
+    elif match_vars == "residual":
+        vars_to_match = ["Residual_load"]
+        vars_to_standardize = ["Residual_load"]
+        tails = {"Residual_load": "high"}
+    print(vars_to_match)
+    df_daily = pd.read_csv(DF_PROD_DEMAND_FNAME, index_col=0)
+    df_std = standardize_df(df_daily, vars_to_standardize)
 
 #%%
 def run_sa(metric, t0=2.0, cr=0.98, mi=5_000, seed=42):
     print(f"Starting Simulated Annealing procedure, metric = {metric.__name__}...")
+    print(f"Year column: {year_col}")
     if metric == sa_cost:
         alternative_metric = ad_total
     else:
@@ -296,13 +321,15 @@ def run_sa(metric, t0=2.0, cr=0.98, mi=5_000, seed=42):
         scoring_fn=metric, # now implement the cost function with joint exceedance in it
         ref_scoring_fn = alternative_metric, # this is the reference score, the one that was originally used
         n_select=NUM_CLUSTERS,
+        year_col=year_col,
+        tails=tails,
         temp_start=t0,
         cooling_rate=cr,
         max_iter=mi,
         random_state=seed,
     )
     sel_dict = {"selected": selected, "best_score": best_score, "best_alternative_score": best_ref_score}
-    json.dump(sel_dict, open(os.path.join(OUTPUT_DIR, f"selected_{metric.__name__}_{t0}_{cr}_{mi}_{seed}.json"), "w"))
+    json.dump(sel_dict, open(os.path.join(OUTPUT_DIR, f"{data}_selected_{match_vars}_{year_col}_{metric.__name__}_{t0}_{cr}_{mi}_{seed}.json"), "w"))
 
     print("Selected (model, year) pairs:", selected)
     print(f"Best score: {best_score:.4f}")
@@ -311,9 +338,8 @@ def run_sa(metric, t0=2.0, cr=0.98, mi=5_000, seed=42):
 
 
 # %%
-vars_to_match = ["NL_OFF", "NL_ON", "NL_SOLAR", "NL_TEMP"]
 metric = sa_cost # sa_cost, or ad_total
-
+year_col = "Hydrological_year" # Hydrological_year or Calendar_year
 # just one run
 #selected, best_score, best_ref_score = run_sa(metric)
 
@@ -331,9 +357,10 @@ results = []
 for seed, (metric, t0, cr, mi) in product(seeds, product(*param_grid.values())):
     selected, best_score, best_ref_score = run_sa(metric, t0, cr, mi, seed)
 
-    results.append({"seed": seed, "metric": metric, "t0": t0, "cr": cr, "score": best_score, "sel": selected})
-    print(i, {"seed": seed, "metric": metric, "t0": t0, "cr": cr, "score": best_score, "sel": selected})
+    results.append({"seed": seed, "metric": metric.__name__, "t0": t0, "cr": cr, "score": best_score, "sel": selected})
+    print(i, {"seed": seed, "metric": metric.__name__, "t0": t0, "cr": cr, "score": best_score, "sel": selected})
     i += 1
 
 best = min(results, key=lambda d: d["score"])
 print(best["score"], best["sel"])
+#%%

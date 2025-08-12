@@ -3,6 +3,7 @@ __pycache__/
 /notebooks/test_scripts/
 /pecd_data/
 /weather_year_selection/
+/outputs/
 
 # Distribution / packaging
 .Python

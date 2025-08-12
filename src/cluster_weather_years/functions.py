@@ -1,3 +1,4 @@
+#%%
 import os
 from typing import Sequence
 
@@ -72,6 +73,8 @@ def build_df():
         .reset_index()
         .sort_values(["model", "Date"])
     )
+    df_daily['Hydrological_year'] = (df_daily['Date'] - pd.DateOffset(months=3)).dt.year # start hydrological year 1st of April
+    df_daily['Calendar_year'] = df_daily['Date'].dt.year
 
     # compute HDD and CDD
 
