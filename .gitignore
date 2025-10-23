@@ -1,6 +1,8 @@
 # Byte-compiled / optimized / DLL files
 __pycache__/
 /notebooks/test_scripts/
+/notebooks/old/
+/notebooks/wasserstein_illustration.ipynb
 /pecd_data/
 /weather_year_selection/
 /outputs/

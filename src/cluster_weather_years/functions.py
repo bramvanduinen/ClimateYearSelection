@@ -1,13 +1,15 @@
-#%%
+# %%
 import os
 from typing import Sequence
 
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+from matplotlib.lines import Line2D
 
 from cluster_weather_years.constants import (
     COLORS,
+    COUNTRIES,
     MIN_WINDOW_ROLLING,
     MODELS,
     MODELS_FNAME,
@@ -17,13 +19,14 @@ from cluster_weather_years.constants import (
     THRES_CDD,
     THRES_HDD,
     WINDOW_ROLLING,
+    YEAR_COL,
     YEARS,
 )
 
 
 def build_df():
-    """Build dataframe for NL based on all raw CSV files downloaded from PECD."""
-    nl_frames_hourly = []
+    """Build dataframe for COUNTRIES based on all raw CSV files downloaded from PECD."""
+    frames_hourly = []
 
     for model_fname, model_name in zip(MODELS_FNAME, MODELS):
         for year in YEARS:
@@ -54,17 +57,29 @@ def build_df():
             df_year = pd.DataFrame(
                 {
                     "Date": df_wind_off["Date"],
-                    "NL_OFF": df_wind_off["NL_OFF"],
-                    "NL_ON": df_wind_on["NL"],
-                    "NL_SOLAR": df_solar["NL"],
-                    "NL_TEMP": df_temp["NL"],
+                    **{
+                        f"{country}_OFF": df_wind_off[f"{country}_OFF"]
+                        for country in COUNTRIES
+                    },
+                    **{
+                        f"{country}_ON": df_wind_on[f"{country}"]
+                        for country in COUNTRIES
+                    },
+                    **{
+                        f"{country}_SOLAR": df_solar[f"{country}"]
+                        for country in COUNTRIES
+                    },
+                    **{
+                        f"{country}_TEMP": df_temp[f"{country}"]
+                        for country in COUNTRIES
+                    },
                     "model": model_name,
                 }
             )
 
-            nl_frames_hourly.append(df_year)
+            frames_hourly.append(df_year)
 
-    df_hourly = pd.concat(nl_frames_hourly, ignore_index=True)
+    df_hourly = pd.concat(frames_hourly, ignore_index=True)
     df_hourly["Date"] = pd.to_datetime(df_hourly["Date"])
 
     df_daily = (
@@ -73,8 +88,10 @@ def build_df():
         .reset_index()
         .sort_values(["model", "Date"])
     )
-    df_daily['Hydrological_year'] = (df_daily['Date'] - pd.DateOffset(months=3)).dt.year # start hydrological year 1st of April
-    df_daily['Calendar_year'] = df_daily['Date'].dt.year
+    df_daily["Hydrological_year"] = (
+        df_daily["Date"] - pd.DateOffset(months=3)
+    ).dt.year  # start hydrological year 1st of April
+    df_daily["Calendar_year"] = df_daily["Date"].dt.year
 
     # compute HDD and CDD
 
@@ -105,6 +122,7 @@ def build_df():
 
     return df_daily, df_nl_rolling
 
+
 def standardize_df(
     df: pd.DataFrame,
     variables: Sequence[str],
@@ -129,6 +147,7 @@ def standardize_df(
         variables
     ].std()
     return df_std
+
 
 def calc_clim_and_year_data_multi(df: pd.DataFrame, column: str):
     """
@@ -162,6 +181,7 @@ def calc_clim_and_year_data_multi(df: pd.DataFrame, column: str):
         {
             "model": models,
             "year": dates.year,
+            "Hydrological_year": df["Hydrological_year"].values,
             "doy": dates.dayofyear,
             "val": df[column].to_numpy(),
         }
@@ -170,7 +190,7 @@ def calc_clim_and_year_data_multi(df: pd.DataFrame, column: str):
     days = np.arange(1, 367)
     mat_df = (
         tmp.pivot_table(
-            index=["model", "year"], columns="doy", values="val", aggfunc="first"
+            index=["model", YEAR_COL], columns="doy", values="val", aggfunc="first"
         )
         .reindex(columns=days)
         .sort_index()
@@ -183,13 +203,13 @@ def calc_clim_and_year_data_multi(df: pd.DataFrame, column: str):
     return nl_matrix, mat_df.index, clim_mean, clim_std, days
 
 
-def calc_clim_per_cluster(df_nl_rolling, yearly_stats, column):
+def calc_clim_per_cluster(df_nl_rolling, yearly_stats, column, num_clusters):
     nl_matrix, row_index, clim_mean, clim_std, days = calc_clim_and_year_data_multi(
         df_nl_rolling, column=column
     )
     cluster_vals = yearly_stats["cluster_med"].values
-    clim_per_cluster = np.empty((5, 366))
-    for i in range(5):
+    clim_per_cluster = np.empty((num_clusters, 366))
+    for i in range(num_clusters):
         cluster_mask = cluster_vals == i
         cluster_data = nl_matrix[cluster_mask]
         clim_per_cluster[i] = np.nanmean(cluster_data, axis=0)
@@ -257,9 +277,11 @@ def plot_clim_and_cum_anom(df_nl_rolling, column):
     # axes[1].legend(loc="lower left")
 
 
-def plot_clim_per_cluster(df_nl_rolling, yearly_stats, centroid_years, column):
+def plot_clim_per_cluster(
+    df_nl_rolling, yearly_stats, centroid_years, column, num_clusters
+):
     nl_matrix, row_index, clim_per_cluster, clim_mean, clim_std, days = (
-        calc_clim_per_cluster(df_nl_rolling, yearly_stats, column)
+        calc_clim_per_cluster(df_nl_rolling, yearly_stats, column, num_clusters)
     )
 
     fig, axes = plt.subplots(2, 1, figsize=(10, 8), sharex=True)
@@ -277,7 +299,7 @@ def plot_clim_per_cluster(df_nl_rolling, yearly_stats, centroid_years, column):
             alpha=0.5,
         )
 
-    for i in range(5):
+    for i in range(num_clusters):
         color = COLORS[i]
         axes[0].plot(
             days, clim_per_cluster[i], color=color, label=i, linewidth=5, zorder=5
@@ -304,7 +326,7 @@ def plot_clim_per_cluster(df_nl_rolling, yearly_stats, centroid_years, column):
         axes[1].set_ylabel("Cumulative anomaly cf (-)")
     else:
         axes[0].set_ylabel(f"{column}")
-        axes[1].set_ylabel("Cumulative anomal")
+        axes[1].set_ylabel("Cumulative anomaly")
 
     axes[0].set_title(
         f"{column} by Day of Year for Each Year with Climatology +- 1 std"
@@ -318,7 +340,7 @@ def plot_clim_per_cluster(df_nl_rolling, yearly_stats, centroid_years, column):
         cluster_id = yearly_stats["cluster_med"][row_index[i]]
         color = COLORS[cluster_id]
         if (model, year) in centroid_years.index:
-            label = f"Centroid year {cluster_id}"
+            # label = f"Centroid year {cluster_id}"
             linewidth = 6
             zorder = 5
             alpha = 1
@@ -343,7 +365,28 @@ def plot_clim_per_cluster(df_nl_rolling, yearly_stats, centroid_years, column):
     axes[1].set_xlim(days[0], days[-1])
     axes[1].set_xlabel("Day of Year")
     axes[1].set_title(f"{column} cumulative anomaly")
-    axes[1].legend(loc="lower left")
+    # axes[1].legend(loc="lower left")
+    # handles, labels = axes[1].get_legend_handles_labels()
+
+    # # Sort by cluster number (assumes labels look like "Cluster X")
+    # sorted_handles_labels = sorted(
+    #     zip(handles, labels),
+    #     key=lambda hl: int(hl[1].split()[-1]) if "Cluster" in hl[1] else -1,
+    # )
+    # handles, labels = zip(*sorted_handles_labels)
+    # for h in handles:
+    #     h.set_linewidth(6)
+    #     h.set_alpha(1)
+    # axes[1].legend(handles, labels, loc="lower left")
+
+    # Build proxy handles in desired order (Cluster 0 … Cluster 4), thick for legend only
+    legend_labels = [f"Cluster {i}" for i in range(5)]
+    legend_handles = [
+        Line2D([0], [0], color=COLORS[i], linewidth=6, alpha=1, label=legend_labels[i])
+        for i in range(5)
+    ]
+
+    axes[1].legend(legend_handles, legend_labels, loc="lower left")
 
     # Add histogram of cumulative anomalies to the right of the second subplot
 

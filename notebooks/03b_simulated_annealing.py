@@ -1,366 +1,255 @@
 # %%
 import os
-import json
-import warnings
-import pandas as pd
-import random
-
-import numpy as np
-from scipy.stats import ks_2samp, anderson_ksamp
-from typing import List, Tuple, Sequence, Callable, Optional
-from itertools import product, combinations
-from tqdm import tqdm
+import shutil
+from concurrent.futures import ProcessPoolExecutor, as_completed
+from datetime import datetime
+from itertools import product
 
 import matplotlib.pyplot as plt
-import seaborn as sns
+import pandas as pd
+from sa_settings import (
+    DATA,
+    DF_DAILY_FNAME,
+    DF_PROD_DEMAND_FNAME,
+    MATCH_COUNTRIES,
+    MATCH_VARS,
+    NUM_CLUSTERS,
+    PARAM_GRID,
+    SEEDS,
+    YEAR_COL,
+)
 
-from cluster_weather_years.functions import build_df
-from cluster_weather_years.constants import BASE_OUTPUT, MODELS, YEARS, NUM_CLUSTERS
-
-# %%
-data = "energy" # energy or meteo
-match_vars = "full" # optimize on full (excl residual) or on just residual load
-DF_DAILY_FNAME = os.path.join(BASE_OUTPUT, "dataframes/df_daily.csv")
-DF_PROD_DEMAND_FNAME = os.path.join(BASE_OUTPUT, "dataframes/df_prod_demand_daily.csv")
-OUTPUT_DIR = os.path.join(BASE_OUTPUT, "simulated_annealing")
-# %%
-def standardize_df(
-    df: pd.DataFrame,
-    variables: Sequence[str],
-) -> pd.DataFrame:
-    """
-    Standardise `variables` to zero mean and unit variance (z-score).
-
-    Parameters
-    ----------
-    df : pandas.DataFrame
-        Input dataframe.
-    variables : Sequence[str]
-        Columns to standardise.
-
-    Returns
-    -------
-    pandas.DataFrame
-        Copy of `df` with standardised variables.
-    """
-    df_std = df.copy()
-    df_std[variables] = (df_std[variables] - df_std[variables].mean()) / df_std[
-        variables
-    ].std()
-    return df_std
-
-def ks_total(
-    df: pd.DataFrame,
-    combos: Sequence[Tuple[str, int]],
-    variables: Sequence[str],
-    model_col: str = "model",
-    year_col: str = "year",
-) -> float:
-    """Unweighted Kolmogorov–Smirnov score (lower ⇒ closer)."""
-    mask = df[[model_col, year_col]].apply(tuple, axis=1).isin(combos)
-    sub = df[mask]
-    return sum(
-        ks_2samp(df[var].values, sub[var].values, method="auto").statistic
-        for var in variables
-    )
-
-def _ad_stat(a: np.ndarray, b: np.ndarray) -> float:
-    """Anderson–Darling statistic with p-value warnings silenced."""
-    with warnings.catch_warnings():
-        warnings.filterwarnings(
-            "ignore",
-            message=r"p-value (?:capped|floored).*",
-            category=UserWarning,
-        )
-        return anderson_ksamp([a, b]).statistic
-
-def ad_total(
-    df: pd.DataFrame,
-    combos: Sequence[Tuple[str, int]],
-    variables: Sequence[str],
-    model_col: str = "model",
-    year_col: str = "year",
-) -> float:
-    """Anderson–Darling k-sample score (lower ⇒ closer; tail-weighted)."""
-    mask = df[[model_col, year_col]].apply(tuple, axis=1).isin(combos)
-    sub = df[mask]
-    return sum(_ad_stat(df[v].values, sub[v].values) for v in variables)
-
-
-def joint_tail_penalty(
-    df: pd.DataFrame,
-    combos: Sequence[Tuple[str, int]],
-    variables: Sequence[str],
-    tails: dict,  # e.g. {"wind_off": "low", "wind_on": "low", "solar": "low", "temp": "low"}
-    probs: Sequence[float] = (0.10, 0.05, 0.02),
-    max_order: int = 3,
-    model_col: str = "model",
-    year_col: str = "year",
-) -> float:
-    """Match joint tail co-exceedance rates between full sample and selected years.
-       Lower = better. Supports mixed tail directions via `tails`."""
-    idx_sel = df[[model_col, year_col]].apply(tuple, axis=1).isin(combos).to_numpy()
-    X = df[variables].to_numpy()
-    # Drop rows with any NaNs across variables
-    ok = ~np.isnan(X).any(axis=1)
-    X, idx_sel = X[ok], idx_sel[ok]
-    X_sub = X[idx_sel]
-
-    d = len(variables)
-    eps = 1e-12
-    score = 0.0
-
-    # Precompute full-sample quantiles for each tail severity
-    qmap = {p: np.array([
-        np.quantile(X[:, j], p if tails.get(variables[j], "low") == "low" else 1 - p)
-        for j in range(d)
-    ]) for p in probs}
-
-    for p in probs:
-        q = qmap[p]
-        # Indicators for each variable being in the requested tail (full & subset)
-        ind_full = []
-        ind_sub = []
-        for j, v in enumerate(variables):
-            if tails.get(v, "low") == "low":
-                ind_full.append(X[:, j] <= q[j])
-                ind_sub.append(X_sub[:, j] <= q[j])
-            else:
-                ind_full.append(X[:, j] >= q[j])
-                ind_sub.append(X_sub[:, j] >= q[j])
-        ind_full = np.array(ind_full)   # (d, n_full)
-        ind_sub  = np.array(ind_sub)    # (d, n_sub)
-
-        for order in range(1, min(max_order, d) + 1):
-            for idxs in combinations(range(d), order):
-                # calculate mean of joint exceedance rate for both full and subset
-                jf = np.logical_and.reduce([ind_full[k] for k in idxs]).mean()
-                js = np.logical_and.reduce([ind_sub[k]  for k in idxs]).mean()
-                if jf < eps:
-                    continue  # nothing to match at this severity
-                # relative squared error of joint rate
-                score += ((js - jf) / (jf + eps)) ** 2
-
-    return float(score)
-
-def sa_cost(
-    df: pd.DataFrame,
-    combos: Sequence[Tuple[str, int]],
-    variables: Sequence[str],
-    tails: dict,
-    w_ad: float = 1.0,
-    w_joint: float = 1.0,
-    model_col: str = "model",
-    year_col: str = "year",
-) -> float:
-    return (
-        w_ad * ad_total(df, combos, variables, model_col=model_col, year_col=year_col)
-        + w_joint * joint_tail_penalty(df, combos, variables, tails, model_col=model_col, year_col=year_col)
-    )
-
-
-def simulated_annealing_selection(
-    df: pd.DataFrame,
-    variables: Sequence[str],
-    n_select: int,
-    tails: dict,
-    model_col: str = "model",
-    year_col: str = "year",
-    scoring_fn: Callable[..., float] = ad_total,
-    ref_scoring_fn: Callable[..., float] = ks_total,
-    temp_start: float = 1.0,
-    temp_end: float = 1e-3,
-    cooling_rate: float = 0.98,
-    max_iter: int = 10_000,
-    random_state: Optional[int] = None,
-) -> Tuple[List[Tuple[str, int]], float, pd.DataFrame]:
-    """
-    Simulated annealing that optimises `scoring_fn` (default AD) and logs the
-    reference score from `ref_scoring_fn` (default unweighted KS).
-
-    Returns
-    -------
-    (best_combos, best_score, log_df)
-        best_combos : list[(model, year)]
-        best_score  : float (optimised score)
-        log_df      : pandas.DataFrame with columns
-                      ["iter", "temp", "score_opt", "score_ref"]
-    """
-    rng = np.random.default_rng(random_state)
-    all_combos = list(
-        df[[model_col, year_col]].drop_duplicates().itertuples(index=False, name=None)
-    )
-    if n_select > len(all_combos):
-        raise ValueError("n_select exceeds available (model, year) pairs")
-
-    idx = rng.choice(len(all_combos), n_select, replace=False)
-    current = [all_combos[i] for i in idx]
-    best = current.copy()
-    if scoring_fn == sa_cost:
-        current_score = best_score = scoring_fn(
-            df = df, combos = current, variables = variables, tails=tails, model_col=model_col, year_col=year_col
-        )
-    else:
-        current_score = best_score = scoring_fn(
-            df = df, combos = current, variables = variables, model_col=model_col, year_col=year_col
-        )
-
-    if ref_scoring_fn == sa_cost:
-        ref_score = ref_scoring_fn(
-            df, current, variables, tails=tails, model_col=model_col, year_col=year_col
-        )
-    else:
-        ref_score = ref_scoring_fn(
-            df, current, variables, model_col=model_col, year_col=year_col
-        )
-
-    temp = temp_start
-    log: list[dict] = [
-        {
-            "iter": 0,
-            "temp": temp,
-            "score_opt": current_score,
-            "score_ref": ref_score,
-        }
-    ]
-
-    for it in tqdm(range(1, max_iter + 1)):
-        if temp < temp_end:
-            break
-
-        remaining = [c for c in all_combos if c not in current]
-        out_idx = rng.integers(n_select)
-        in_combo = remaining[rng.integers(len(remaining))]
-
-        neighbour = current.copy()
-        neighbour[out_idx] = in_combo
-        if scoring_fn == sa_cost:
-            neighbour_score = scoring_fn(
-                df = df, combos = neighbour, variables = variables, tails=tails, model_col=model_col, year_col=year_col
-            )
-        else:
-            neighbour_score = scoring_fn(
-                df = df, combos = neighbour, variables = variables, model_col=model_col, year_col=year_col
-            )
-
-        delta = neighbour_score - current_score
-        if delta < 0 or rng.random() < np.exp(-delta / temp):
-            current, current_score = neighbour, neighbour_score
-            if current_score < best_score:
-                best, best_score = current.copy(), current_score
-
-        if ref_scoring_fn == sa_cost:
-            ref_score = ref_scoring_fn(
-                df, current, variables, tails=tails, model_col=model_col, year_col=year_col
-            )
-        else:
-            ref_score = ref_scoring_fn(
-                df, current, variables, model_col=model_col, year_col=year_col
-            )
-        log.append(
-            {
-                "iter": it,
-                "temp": temp,
-                "score_opt": current_score,
-                "score_ref": ref_score,
-            }
-        )
-        temp *= cooling_rate
-
-    return sorted(best), best_score, ref_score, pd.DataFrame(log)
+from cluster_weather_years.constants import (
+    SA_OUTPUT_DIR,
+)
+from cluster_weather_years.functions import build_df, standardize_df
+from cluster_weather_years.sa import (
+    ad_total,
+    combined_score,
+    precompute_tail_quantiles,
+    simulated_annealing_selection_with_reheating,
+)
 
 # %%
-# Build NL dataframe
-if data == "meteo":
-    if match_vars == "full":
+# create folder for output of this run
+rundate = datetime.now().strftime("%Y%m%d_%H%M")
+country_string = "_".join(MATCH_COUNTRIES)
+SA_DIR_RUN = os.path.join(SA_OUTPUT_DIR, f"run_{country_string}_{rundate}/")
+os.makedirs(SA_DIR_RUN, exist_ok=True)
+# export copy of sa_settings.py to outputs/simulated_annealing/sa_settings.py
+shutil.copy("sa_settings.py", os.path.join(SA_DIR_RUN, "sa_settings_of_run.py"))
+# %%
+# Build dataframes and standardize
+# old
+if DATA == "meteo":
+    if MATCH_VARS == "full":
         vars_to_match = ["NL_OFF", "NL_ON", "NL_SOLAR", "NL_TEMP"]
+        vars_to_standardize = vars_to_match
         tails = {"NL_OFF": "low", "NL_ON": "low", "NL_SOLAR": "low", "NL_TEMP": "low"}
-    elif match_vars == "residual":
+    elif MATCH_VARS == "full_multi_country":
+        vars_to_match = ["NL_OFF", "NL_ON", "NL_SOLAR", "NL_TEMP"]
+        vars_to_standardize = vars_to_match
+        tails = {"NL_OFF": "low", "NL_ON": "low", "NL_SOLAR": "low", "NL_TEMP": "low"}
+    elif MATCH_VARS == "residual":
         vars_to_match = ["Residual_ish"]
+        vars_to_standardize = ["Residual_ish"]
         tails = {"Residual_ish": "high"}
-    print(vars_to_match)
+
     if not os.path.exists(DF_DAILY_FNAME):
         print("Calculating df_daily...")
         df_daily, _ = build_df()
         df_daily = df_daily.reset_index()
-        #df_daily["year"] = df_daily["Date"].dt.year
         df_daily.to_csv(DF_DAILY_FNAME)
     else:
         print("Taking df_daily from memory...")
         df_daily = pd.read_csv(DF_DAILY_FNAME, index_col=0)
 
-    vars_to_standardize = ["NL_OFF", "NL_ON", "NL_SOLAR", "NL_TEMP"]
-    df_std = standardize_df(df_daily, vars_to_standardize)
-    # compute some residual load, but not any weighting yet (e.g. based on capacity). Just to see joint-tail behavior
-    df_std["Residual_ish"] = df_std["NL_TEMP"] + (df_std["NL_SOLAR"] + df_std["NL_OFF"] + df_std["NL_ON"])
-elif data == "energy":
+    df_std = standardize_df(df_daily, vars_to_standardize)  # base standardization
+    if MATCH_VARS == "residual":
+        # compute a residual-like variable for experimentation
+        df_std["Residual_ish"] = df_std["NL_TEMP"] + (
+            df_std["NL_SOLAR"] + df_std["NL_OFF"] + df_std["NL_ON"]
+        )
+
+elif DATA == "energy":
     print("Taking df_prod_demand_daily from memory...")
-    if match_vars == "full":
+    if MATCH_VARS == "full":
         vars_to_match = ["NL_OFF_prod", "NL_ON_prod", "NL_SOLAR_prod", "Demand"]
-        vars_to_standardize = ["NL_OFF_prod", "NL_ON_prod", "NL_SOLAR_prod", "Demand"]
-        tails = {"NL_OFF_prod": "low", "NL_ON_prod": "low", "NL_SOLAR_prod": "low", "Demand": "high"}
-    elif match_vars == "residual":
+        vars_to_standardize = vars_to_match
+        tails = {
+            "NL_OFF_prod": "low",
+            "NL_ON_prod": "low",
+            "NL_SOLAR_prod": "low",
+            "Demand": "high",
+        }
+    elif MATCH_VARS == "full_multi_country":
+        vars_to_match = (
+            [f"{country}_OFF_prod" for country in MATCH_COUNTRIES]
+            + [f"{country}_ON_prod" for country in MATCH_COUNTRIES]
+            + [f"{country}_SOLAR_prod" for country in MATCH_COUNTRIES]
+            + [f"{country}_Demand" for country in MATCH_COUNTRIES]
+        )
+        vars_to_standardize = vars_to_match
+        tails = (
+            {f"{country}_OFF_prod": "low" for country in MATCH_COUNTRIES}
+            | {f"{country}_ON_prod": "low" for country in MATCH_COUNTRIES}
+            | {f"{country}_SOLAR_prod": "low" for country in MATCH_COUNTRIES}
+            | {f"{country}_Demand": "high" for country in MATCH_COUNTRIES}
+        )
+    elif MATCH_VARS == "residual":
         vars_to_match = ["Residual_load"]
         vars_to_standardize = ["Residual_load"]
         tails = {"Residual_load": "high"}
-    print(vars_to_match)
+
     df_daily = pd.read_csv(DF_PROD_DEMAND_FNAME, index_col=0)
     df_std = standardize_df(df_daily, vars_to_standardize)
 
-#%%
-def run_sa(metric, t0=2.0, cr=0.98, mi=5_000, seed=42):
-    print(f"Starting Simulated Annealing procedure, metric = {metric.__name__}...")
-    print(f"Year column: {year_col}")
-    if metric == sa_cost:
-        alternative_metric = ad_total
-    else:
-        alternative_metric = sa_cost
-    selected, best_score, best_ref_score, log_df = simulated_annealing_selection(
-        df=df_std,
-        variables=vars_to_match,
-        scoring_fn=metric, # now implement the cost function with joint exceedance in it
-        ref_scoring_fn = alternative_metric, # this is the reference score, the one that was originally used
-        n_select=NUM_CLUSTERS,
-        year_col=year_col,
-        tails=tails,
-        temp_start=t0,
-        cooling_rate=cr,
-        max_iter=mi,
-        random_state=seed,
-    )
-    sel_dict = {"selected": selected, "best_score": best_score, "best_alternative_score": best_ref_score}
-    json.dump(sel_dict, open(os.path.join(OUTPUT_DIR, f"{data}_selected_{match_vars}_{year_col}_{metric.__name__}_{t0}_{cr}_{mi}_{seed}.json"), "w"))
+# remove incomplete hydrological years, if this is the selected year column
+if YEAR_COL == "Hydrological_year":
+    df_daily = df_daily.query("Hydrological_year > 2014 and Hydrological_year < 2044")
+    df_std = df_std.query("Hydrological_year > 2014 and Hydrological_year < 2044")
 
-    print("Selected (model, year) pairs:", selected)
-    print(f"Best score: {best_score:.4f}")
-    print(log_df.tail())          # shows the last few iterations
-    return selected, best_score, best_ref_score
+# %%
+# Precompute quantiles and compose scoring context
+qmap, is_high, probs = precompute_tail_quantiles(df_daily, vars_to_match, tails)
+context = {
+    "tails": tails,
+    "qmap": qmap,
+    "is_high": is_high,
+    "probs": probs,
+    "max_order": 3,
+    "w_ad": 1.0,
+    "w_joint": 1.0,
+}
 
 
 # %%
-metric = sa_cost # sa_cost, or ad_total
-year_col = "Hydrological_year" # Hydrological_year or Calendar_year
-# just one run
-#selected, best_score, best_ref_score = run_sa(metric)
+def run_sa(metric, t0=2.0, cr=0.98, mi=5_000, seed=42):
+    """Run a single SA instance with given parameters and return results dict."""
+    if metric == ad_total:
+        alternative_metric = combined_score
+    else:
+        alternative_metric = ad_total
 
-#%%
+    # NOTE: NOW WITH REHEATING!
+    selected, best_score, best_ref_score, log_df = (
+        simulated_annealing_selection_with_reheating(
+            df=df_daily,
+            variables=vars_to_match,
+            scoring_fn=metric,
+            ref_scoring_fn=alternative_metric,
+            n_select=NUM_CLUSTERS,
+            context=context,
+            model_col="model",
+            year_col=YEAR_COL,
+            temp_start=t0,
+            cooling_rate=cr,
+            max_iter=mi,
+            random_state=seed,
+        )
+    )
+
+    sel_dict = {
+        "selected": selected,
+        "optimized_metric": metric.__name__,
+        "ref_metric": alternative_metric.__name__,
+        "best_score": best_score,
+        "best_ref_score": best_ref_score,
+        "seed": seed,
+        "t0": t0,
+        "cr": cr,
+        "mi": mi,
+    }
+
+    # plot evolution of scores after the run
+    fig, (ax1, ax3) = plt.subplots(
+        2, 1, figsize=(8, 6), sharex=True, gridspec_kw={"height_ratios": [2, 1]}
+    )
+
+    ax2 = ax1.twinx()
+    ax4 = ax3.twinx()
+
+    label_opt = metric.__name__
+    label_ref = alternative_metric.__name__
+
+    # --- Top panel: scores ---
+    ax1.plot(log_df["iter"], log_df["score_opt"], label=label_opt, color="tab:blue")
+    ax1.set_ylabel(f"{label_opt} (lower is better)", color="tab:blue")
+    ax1.tick_params(axis="y", labelcolor="tab:blue")
+
+    ax2.plot(log_df["iter"], log_df["score_ref"], label=label_ref, color="tab:orange")
+    ax2.set_ylabel(f"{label_ref} (lower is better)", color="tab:orange")
+    ax2.tick_params(axis="y", labelcolor="tab:orange")
+
+    ax1.set_title(f"SA evolution: t0={t0}, cr={cr}, mi={mi}, seed={seed}")
+
+    # --- Bottom panel: acceptance rate ---
+    ax3.plot(log_df["iter"], log_df["acc_rate"], color="tab:green")
+    ax3.tick_params(axis="y", labelcolor="tab:green")
+    ax4.plot(log_df["iter"], log_df["temp"], color="tab:red")
+    ax4.tick_params(axis="y", labelcolor="tab:red")
+    ax3.set_xlabel("iteration")
+    ax3.set_ylabel("acceptance rate")
+    ax4.set_ylabel("temperature")
+
+    fig.tight_layout()
+
+    # Save fig
+    plot_name = f"{DATA}_selected_{MATCH_VARS}_{MATCH_COUNTRIES}_{YEAR_COL}_{metric.__name__}_{t0}_{cr}_{mi}_{seed}.png"
+    os.makedirs(os.path.join(SA_DIR_RUN, "plots"), exist_ok=True)
+    fig.savefig(os.path.join(SA_DIR_RUN, f"plots/{plot_name}"), bbox_inches="tight")
+    plt.close(fig)
+    return sel_dict
+
+
+def _sa_job(job):
+    """Run a single SA job: (seed, metric, t0, cr, mi) -> sel_dict."""
+    seed, metric, t0, cr, mi = job
+    return run_sa(metric, t0, cr, mi, seed)
+
+
+# %%
 i = 0
-param_grid = {
-    "metric": [sa_cost, ad_total],
-    "temp_start": [2.0], #[0.5, 1.0, 2.0], #higher start doesn't really help
-    "cooling_rate": [0.98, 0.99], #higher cooling rate (i.e. slower cooling) does help
-    "max_iter": [5_000], #doesn't even reach this, I think
-}
-seeds = range(3)  # maybe more later
-
 results = []
-for seed, (metric, t0, cr, mi) in product(seeds, product(*param_grid.values())):
-    selected, best_score, best_ref_score = run_sa(metric, t0, cr, mi, seed)
 
-    results.append({"seed": seed, "metric": metric.__name__, "t0": t0, "cr": cr, "score": best_score, "sel": selected})
-    print(i, {"seed": seed, "metric": metric.__name__, "t0": t0, "cr": cr, "score": best_score, "sel": selected})
-    i += 1
+# for seed, (metric, t0, cr, mi) in product(SEEDS, product(*PARAM_GRID.values())):
+#     sel_dict = run_sa(metric, t0, cr, mi, seed)
+#     results.append(sel_dict)
+#     print(i, results[-1]["optimized_metric"], results[-1]["best_score"])
+#     i += 1
 
-best = min(results, key=lambda d: d["score"])
-print(best["score"], best["sel"])
-#%%
+# df_results = pd.DataFrame(results)
+# df_results.to_csv(os.path.join(SA_DIR_RUN, "results_grid.csv"))
+# best = min(results, key=lambda d: d["best_score"])
+# print(best["best_score"], best["selected"])
+# print(df_results)
+
+if __name__ == "__main__":
+    jobs = [
+        (seed, *vals) for seed, vals in product(SEEDS, product(*PARAM_GRID.values()))
+    ]
+    results = []
+
+    n_workers = min(os.cpu_count() or 1, len(jobs))
+
+    print("Starting Simulated Annealing procedure...")
+    print(f"Selecting {NUM_CLUSTERS} years")
+    print(f"Countries: {MATCH_COUNTRIES}")
+    print(f"Parameter grid: {PARAM_GRID}")
+    print(f"Number of seeds: {len(SEEDS)}")
+    print(f"Year column: {YEAR_COL}")
+
+    with ProcessPoolExecutor(max_workers=n_workers) as ex:
+        futures = [ex.submit(_sa_job, j) for j in jobs]
+        for i, fut in enumerate(as_completed(futures), start=1):
+            sel_dict = fut.result()
+            results.append(sel_dict)
+            print(i, sel_dict["optimized_metric"], sel_dict["best_score"])
+    df_results = pd.DataFrame(results)
+    df_results.to_csv(os.path.join(SA_DIR_RUN, "results_grid.csv"))
+    best = min(results, key=lambda d: d["best_score"])
+    print(best["best_score"], best["selected"])
+    print(df_results)
+
+
+# %%
