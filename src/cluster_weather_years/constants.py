@@ -1,6 +1,7 @@
 # list of constants
 import os
 
+import numpy as np
 from matplotlib import cm
 
 YEARS = range(2015, 2045)
@@ -13,6 +14,12 @@ THRES_CDD = 25.5  # values for Austria, taken from Katharina Gruber
 
 WINDOW_ROLLING = 30  # days rolling mean for climatology
 MIN_WINDOW_ROLLING = 7  # minimum amount of days for rolling mean to be non-nan.
+
+# quantiles for QQ-comparison
+dense_low = np.linspace(0.005, 0.05, 9, endpoint=False)
+coarse = np.linspace(0.05, 0.95, 91)
+dense_high = np.linspace(0.955, 0.995, 9)
+PROBS = np.concatenate([dense_low, coarse, dense_high])
 
 COLORS = cm.get_cmap("tab10").colors
 

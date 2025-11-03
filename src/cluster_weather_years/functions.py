@@ -24,6 +24,42 @@ from cluster_weather_years.constants import (
 )
 
 
+# %% building dataframes of subsets
+def build_df_centroids(df_daily, selected, mode="Hydrological_year"):
+    """
+    Build df with daily data of selected years
+    """
+    frames_centroids = []
+    for i, (model, year) in enumerate(selected):
+        # model_centroid, year_centroid = row["model"], row["Date"]
+        if mode == "Hydrological_year":
+            df_centroid = df_daily.query(
+                f"model == '{model}' and Hydrological_year == {year}"
+            )
+        elif mode == "Calendar_year":
+            df_centroid = df_daily.query(
+                f"model == '{model}' and Calendar_year == {year}"
+            )
+        else:
+            raise ValueError("Mode not recognized.")
+
+        frames_centroids.append(df_centroid)
+
+    return pd.concat(frames_centroids, ignore_index=True)
+
+
+def build_df_random(
+    df_idx: pd.DataFrame,
+    keys: np.ndarray,
+    rng: np.random.Generator,
+    num_random: int,
+) -> pd.DataFrame:
+    """Build dataframe with a randomly drawn subset of model-years"""
+    sel = rng.choice(len(keys), size=num_random, replace=False)
+    return df_idx.loc[keys[sel]].reset_index()
+
+
+# %%
 def build_df():
     """Build dataframe for COUNTRIES based on all raw CSV files downloaded from PECD."""
     frames_hourly = []

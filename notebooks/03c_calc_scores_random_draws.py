@@ -2,12 +2,12 @@
 # %%
 import itertools
 import os
+import pickle
 import random
 from concurrent.futures import ProcessPoolExecutor
 from math import comb
 from typing import Iterable, Tuple
 
-import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from ot import sliced_wasserstein_distance
@@ -18,28 +18,26 @@ from cluster_weather_years.constants import (
     BASE_OUTPUT,
     HYDROLOGICAL_YEARS,
     MODELS,
+    PROBS,
 )
+from cluster_weather_years.functions import build_df_centroids, build_df_random
 
 # %% SETTINGS
 
-NUM_DRAWS = int(1e5)  # number of random draws to compare with
+NUM_DRAWS = int(1e5)  # number of random draws to compare with, default = 1e5
 NUM_CLUSTERS = 5  # Number of Climate Years to calculate
 TUNE = False  # whether to run in tuning mode (for thresholds)
 # ALL_MATCH_COUNTRIES = ["NL", "BE", "FR", "DE"]
 ALL_MATCH_COUNTRIES = ["NL"]
 
-RUN_ID = "NL_20251001_1220"  # NL 5y
-RUN_ID_alternative = "NL_BE_FR_DE_20251015_0801"  # Multi, 30y
+# RUN_ID = "NL_20251024_1320"  # NL 30y; Run to analyze and compare to random draws
+RUN_ID = "NL_20251023_0942"  # NL 5y; Run to analyze and compare to random draws
+
+# RUN_ID_alternative = "NL_BE_FR_DE_20251015_0801"  # Multi, 30y
 
 # %%
 seed = 42
 random.seed(seed)
-
-# quantiles
-dense_low = np.linspace(0.005, 0.05, 9, endpoint=False)
-coarse = np.linspace(0.05, 0.95, 91)
-dense_high = np.linspace(0.955, 0.995, 9)
-PROBS = np.concatenate([dense_low, coarse, dense_high])
 
 # build df
 DF_PROD_DEMAND_FNAME = os.path.join(
@@ -51,6 +49,10 @@ df_daily = pd.read_csv(DF_PROD_DEMAND_FNAME, index_col=0)
 df_daily["Date"] = pd.to_datetime(df_daily["Date"])
 df_daily = df_daily.query("Hydrological_year > 2014 and Hydrological_year < 2044")
 
+# settings for random-draws
+df_idx = df_daily.set_index(["model", "Hydrological_year"]).sort_index()
+keys = df_idx.index.unique().to_numpy()
+rng = np.random.default_rng(seed)
 
 vars_to_match = (
     [f"{country}_OFF_prod" for country in ALL_MATCH_COUNTRIES]
@@ -73,46 +75,6 @@ centroids_k_medoids = pd.read_csv(
     os.path.join(BASE_OUTPUT, "centroids/centroid_years_load.csv"), index_col=0
 )
 centroids_k_medoids_sel = centroids_k_medoids[["model", "Hydrological_year"]].values
-
-
-# %% [markdown]
-# # 2. Functions
-
-
-def build_df_centroids(df_daily, selected, mode="Hydrological_year"):
-    """
-    Build df with daily data of selected years
-    """
-    frames_centroids = []
-    for i, (model, year) in enumerate(selected):
-        # model_centroid, year_centroid = row["model"], row["Date"]
-        if mode == "Hydrological_year":
-            df_centroid = df_daily.query(
-                f"model == '{model}' and Hydrological_year == {year}"
-            )
-        elif mode == "Calendar_year":
-            df_centroid = df_daily.query(
-                f"model == '{model}' and Calendar_year == {year}"
-            )
-        frames_centroids.append(df_centroid)
-
-    return pd.concat(frames_centroids, ignore_index=True)
-
-
-df_idx = df_daily.set_index(["model", "Hydrological_year"]).sort_index()
-keys = df_idx.index.unique().to_numpy()
-rng = np.random.default_rng(seed)
-
-
-def build_df_random(
-    df_idx: pd.DataFrame,
-    keys: np.ndarray,
-    rng: np.random.Generator,
-    num_random: int,
-) -> pd.DataFrame:
-    sel = rng.choice(len(keys), size=num_random, replace=False)
-    return df_idx.loc[keys[sel]].reset_index()
-
 
 # %%
 columns = vars_to_match.copy()
@@ -144,119 +106,8 @@ sample_percentage = 100 * NUM_DRAWS / comb(len(MODEL_YEARS), NUM_CLUSTERS)
 print(
     f"Built {NUM_DRAWS:.0e} datasets, which is {sample_percentage:.2e}% of all possible combinations."
 )
+# %% thresholds for selections
 
-# %% [markdown]
-# # 3. Metrics calculation
-
-# %% [markdown]
-# ## 3.1 Metrics calculation, version for tuning thresholds
-
-# %%
-threshold_mean_tune = 0.01  # threshold for mean difference, witin 1% of full set
-threshold_energy_tune = 0.1  # was 0.05 based on p10 for energy distance on NL_OFF_prod, but was too strict for random. Might need some tuning
-
-# %%
-if TUNE:
-    scores = []
-    # keep track of energy scores, to tune threshold
-    energy_scores = []
-
-    # initialize
-    mean_skips = 0
-    energy_skips = 0
-    ds_skipped = []
-
-    columns = vars_to_match.copy()
-    df_daily_np = df_daily[columns].to_numpy()
-
-    # col = columns[0]
-
-    # TODO: PUT IN FUNCTION
-    # TODO: PARALLELIZE THIS
-    for col in columns:
-        col_full = df_daily[col]
-        q_full = np.quantile(col_full, PROBS)
-
-        for ds_name in datasets:
-            if ds_name in ds_skipped:
-                continue
-            df_sub = datasets[ds_name]
-            col_sub = df_sub[col]
-
-            # 1. mean difference
-            d_mean = np.abs((col_sub.mean() - col_full.mean()) / col_full.mean())
-
-            # check if score is satisfying, if not continue to next subset
-            if d_mean > threshold_mean_tune:
-                ds_skipped.append(ds_name)
-                mean_skips += 1
-                continue
-
-            # 2. energy score
-            # TODO: make faster using approach of Jean. Don't understand it.
-            energy_distance_score = energy_distance(col_sub, col_full)
-
-            energy_scores.append(
-                {
-                    "ds_name": ds_name,
-                    "variable": col,
-                    "energy_distance_score": float(energy_distance_score),
-                }
-            )
-
-            # arbitrary threshold, might be too tight
-            if energy_distance_score > threshold_energy_tune:
-                ds_skipped.append(ds_name)
-                energy_skips += 1
-                continue
-
-            # 3. calc quantiles and quantile diff
-            q_sub = np.quantile(col_sub, PROBS)
-            qq_diff = np.abs(q_sub - q_full)
-            qq_mae = np.mean(qq_diff)
-            qq_mae_low = np.mean(qq_diff[:10])
-            qq_mae_high = np.mean(qq_diff[-10:])
-
-            # Save scores in list-of-dictionaries
-            scores.append(
-                {
-                    "ds_name": ds_name,
-                    "variable": col,
-                    "d_mean": float(d_mean),
-                    "energy_distance_score": float(energy_distance_score),
-                    "qq_mae": float(qq_mae),
-                    "qq_mae_low": float(qq_mae_low),
-                    "qq_mae_high": float(qq_mae_high),
-                }
-            )
-
-    # TODO: if a dataset is skipped for one variable, skip it for all variables
-    # Convert to df
-    df_scores = pd.DataFrame(scores)
-    print(
-        f"Kept {len(df_scores)} out of {len(datasets)} datasets after skipping {mean_skips} due to mean and {energy_skips} due to energy distance."
-    )
-
-    df_score_all_good = df_scores.query("ds_name not in @ds_skipped")
-
-    df_energy = pd.DataFrame(energy_scores)
-
-    # every univariate should be in top 20% of energy distance scores. So worst one of these sets threshold.
-    plt.figure()
-    for var in columns:
-        df_energy[df_energy["variable"] == var]["energy_distance_score"].hist(label=var)
-        print(
-            var,
-            df_energy[df_energy["variable"] == var]["energy_distance_score"]
-            .quantile(0.2)
-            .round(4),
-        )
-    plt.legend()
-
-# %% [markdown]
-# ## 3.2 Real calculation, with set threshold
-
-# %%
 if NUM_CLUSTERS == 30:
     threshold_mean = 0.01  # threshold for mean difference, witin 1% of full set
     threshold_energy = 0.075  # based on tuning above
@@ -269,7 +120,7 @@ else:
 
 
 # %%
-def score_datasets(
+def score_datasets_v0(
     datasets: dict,
     df_daily: pd.DataFrame,
     columns: list[str],
@@ -284,14 +135,21 @@ def score_datasets(
     ref = {c: df_daily[c].to_numpy() for c in columns}
     ref_q = {c: np.quantile(ref[c], probs) for c in columns}
 
-    records, good_random_dfs, ds_skipped = [], {}, set()
+    records, univariate_good_random_dfs, all_good_random_dfs, ds_skipped = (
+        [],
+        {},
+        {},
+        set(),
+    )
     counters = {"mean_skips": 0, "energy_skips": 0}
 
     # TODO: PARALLELIZE THIS
     for ds_name, df_sub in tqdm(datasets.items()):
+        random = False
         if ds_name in ds_skipped:
             continue
         if ds_name.startswith("Random"):
+            random = True  # these can be discarded, the other ones not!
             # generate Random dataset on the fly, only has to be kept if it is good enough
             df_sub = build_df_random(df_idx, keys, rng, num_random=NUM_CLUSTERS)
         keep = True
@@ -305,7 +163,8 @@ def score_datasets(
             # check if score is satisfying, if not continue to next subset and don't bother with more sophisticated scores or other variables
             if d_mean > threshold_mean:
                 counters["mean_skips"] += 1
-                keep = False
+                if random:
+                    keep = False
                 break
 
             # 2. energy score
@@ -313,7 +172,8 @@ def score_datasets(
             energy_distance_score = energy_distance(sub_arr, full_arr)
             if energy_distance_score > threshold_energy:
                 counters["energy_skips"] += 1
-                keep = False
+                if random:
+                    keep = False
                 break
 
             # 3. quantile differences
@@ -333,7 +193,7 @@ def score_datasets(
             )
 
             if ds_name.startswith("Random"):
-                good_random_dfs[ds_name] = df_sub
+                univariate_good_random_dfs[ds_name] = df_sub
 
         if not keep:
             ds_skipped.add(ds_name)
@@ -341,7 +201,105 @@ def score_datasets(
     df_scores = pd.DataFrame.from_records(records)
     df_score_all_good = df_scores.query("ds_name not in @ds_skipped")
     ds_sufficient = df_score_all_good["ds_name"].unique().tolist()
-    return df_score_all_good, ds_sufficient, good_random_dfs, counters
+    for ds_name, df in univariate_good_random_dfs.items():
+        if ds_name in ds_sufficient:
+            all_good_random_dfs[ds_name] = df
+    return df_score_all_good, ds_sufficient, all_good_random_dfs, counters
+
+
+# TODO: WORK IN PROGRESS
+def score_df(args):
+    ds_name, df_sub, ref, ref_q, columns, probs, threshold_mean, threshold_energy = args
+
+    if ds_name in ds_skipped:
+        return
+    if ds_name.startswith("Random"):
+        # generate Random dataset on the fly, only has to be kept if it is good enough
+        df_sub = build_df_random(df_idx, keys, rng, num_random=NUM_CLUSTERS)
+    keep = True
+
+    for var in columns:
+        sub_arr = df_sub[var].to_numpy()
+        full_arr = ref[var]
+
+        # 1. mean difference
+        d_mean = float(np.abs((sub_arr.mean() - full_arr.mean()) / full_arr.mean()))
+        # check if score is satisfying, if not continue to next subset and don't bother with more sophisticated scores or other variables
+        if d_mean > threshold_mean:
+            counters["mean_skips"] += 1
+            keep = False
+            break
+
+        # 2. energy score
+        # TODO: make faster using approach of Jean. Don't understand it.
+        energy_distance_score = energy_distance(sub_arr, full_arr)
+        if energy_distance_score > threshold_energy:
+            counters["energy_skips"] += 1
+            keep = False
+            break
+
+        # 3. quantile differences
+        q_sub = np.quantile(sub_arr, probs)
+        qq = np.abs(q_sub - ref_q[var])
+
+        records.append(
+            {
+                "ds_name": ds_name,
+                "variable": var,
+                "d_mean": d_mean,
+                "energy_distance_score": energy_distance_score,
+                "qq_mae": float(qq.mean()),
+                "qq_mae_low": float(qq[:10].mean()),
+                "qq_mae_high": float(qq[-10:].mean()),
+            }
+        )
+
+        if ds_name.startswith("Random"):
+            univariate_good_random_dfs[ds_name] = df_sub
+
+    if not keep:
+        ds_skipped.add(ds_name)
+    return records, univariate_good_random_dfs, ds_skipped, counters
+
+
+def score_datasets(
+    datasets, df_daily, columns, probs, threshold_mean, threshold_energy
+):
+    ref = {c: df_daily[c].to_numpy() for c in columns}
+    ref_q = {c: np.quantile(ref[c], probs) for c in columns}
+
+    all_records = []
+    all_univariate = {}
+    all_skipped = set()
+    total_counters = {"mean_skips": 0, "energy_skips": 0}
+
+    # prepare arguments for each dataset
+    args_list = [
+        (ds_name, df_sub, ref, ref_q, columns, probs, threshold_mean, threshold_energy)
+        for ds_name, df_sub in datasets.items()
+    ]
+
+    with ProcessPoolExecutor() as exe:
+        for recs, uni, skipped, counters in tqdm(
+            exe.map(score_df, args_list), total=len(args_list)
+        ):
+            all_records.extend(recs)
+            all_univariate.update(uni)
+            all_skipped.update(skipped)
+            total_counters["mean_skips"] += counters["mean_skips"]
+            total_counters["energy_skips"] += counters["energy_skips"]
+
+    df_scores = pd.DataFrame.from_records(all_records)
+    df_score_all_good = df_scores.query("ds_name not in @all_skipped")
+    ds_sufficient = df_score_all_good["ds_name"].unique().tolist()
+
+    all_good_random_dfs = {
+        ds_name: df
+        for ds_name, df in all_univariate.items()
+        if ds_name in ds_sufficient
+    }
+
+    return df_score_all_good, ds_sufficient, all_good_random_dfs, total_counters
 
 
 # 4. Wasserstein distance for sufficient datasets on univariates
@@ -368,9 +326,8 @@ def wasserstein_for_sufficient(
 
 # %%
 # ---- Run --------------------------------------------------------------------
-# TODO: non-parallel version, clean up
 
-df_score_all_good, ds_sufficient, good_random_datasets, ctrs = score_datasets(
+df_score_all_good, ds_sufficient, good_random_datasets, ctrs = score_datasets_v0(
     datasets=datasets,
     df_daily=df_daily,
     columns=vars_to_match,
@@ -380,14 +337,6 @@ df_score_all_good, ds_sufficient, good_random_datasets, ctrs = score_datasets(
 )
 
 final_datasets = datasets_optimized | good_random_datasets
-
-# df_wass_scores = wasserstein_for_sufficient(
-#     datasets=final_datasets,
-#     ds_sufficient=ds_sufficient,
-#     df_daily=df_daily,
-#     columns=vars_to_match,
-#     n_projections=50,
-# )
 
 print(
     f"Kept {len(ds_sufficient)} / {len(datasets)} datasets "
@@ -447,18 +396,23 @@ df_wass_scores = wasserstein_for_sufficient_parallel(
     ds_sufficient=ds_sufficient,
     df_daily=df_daily,
     columns=vars_to_match,
-    n_projections=100,
+    n_projections=200,
 )
 
 
 # %%
-# TODO: FIX NAMES
-# TODO: LATER ALSO SAVE DATASETS
 
-filename = f"{ALL_MATCH_COUNTRIES}_{NUM_DRAWS}_draws_{NUM_CLUSTERS}_clusters"
+filename = (
+    f"{ALL_MATCH_COUNTRIES}_{NUM_DRAWS}_draws_{NUM_CLUSTERS}_clusters_run_{RUN_ID}"
+)
 df_wass_scores.to_csv(f"{BASE_OUTPUT}/metrics_random_draws/wasserstein_{filename}.csv")
 df_score_all_good.to_csv(
     f"{BASE_OUTPUT}/metrics_random_draws/univariate_scores_{filename}.csv"
 )
+
+with open(
+    f"{BASE_OUTPUT}/metrics_random_draws/final_datasets_{filename}.pkl", "wb"
+) as f:
+    pickle.dump(final_datasets, f)
 
 print("Done saving scores.")
