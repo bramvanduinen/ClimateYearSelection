@@ -26,6 +26,8 @@ from cluster_weather_years.sa import (
     combined_score,
     precompute_tail_quantiles,
     simulated_annealing_selection,
+    wasserstein_score,
+    wasserstein_seasonal_score,
 )
 
 # %%
@@ -44,10 +46,12 @@ vars_to_match = (
     + [f"{country}_ON_prod" for country in MATCH_COUNTRIES]
     + [f"{country}_SOLAR_prod" for country in MATCH_COUNTRIES]
     + [f"{country}_Demand" for country in MATCH_COUNTRIES]
+    + [f"{country}_Residual_load" for country in MATCH_COUNTRIES]
 )
 vars_to_standardize = vars_to_match.copy()
 
 df_daily = pd.read_csv(DF_PROD_DEMAND_FNAME, index_col=0)
+df_daily["Date"] = pd.to_datetime(df_daily["Date"])
 df_std = standardize_df(df_daily, vars_to_standardize)
 
 # remove incomplete hydrological years, if this is the selected year column
@@ -126,6 +130,10 @@ def run_sa(metric, t0=2.0, cr=0.98, mi=5_000, seed=42):
     """Run a single SA instance with given parameters and return results dict."""
     if metric == ad_total:
         alternative_metric = combined_score
+    elif metric == wasserstein_score:
+        alternative_metric = wasserstein_seasonal_score
+    elif metric == wasserstein_seasonal_score:
+        alternative_metric = wasserstein_score
     else:
         alternative_metric = ad_total
 

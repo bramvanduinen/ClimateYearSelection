@@ -8,6 +8,8 @@ from ot import sliced_wasserstein_distance
 from scipy.stats import anderson_ksamp, ks_2samp
 from tqdm import tqdm
 
+from cluster_weather_years.constants import SEASONS
+
 # %% Main SA algorithm
 
 
@@ -25,6 +27,8 @@ def simulated_annealing_selection(
     cooling_rate: float = 0.98,
     max_iter: int = 10_000,
     random_state: Optional[int] = None,
+    sel_type="full",  # full to sample from full df, or 'subset' to choose mini-subset from larger subset.
+    subset=None,  # only specified if sel_type = "subset"
 ) -> Tuple[list[Tuple[str, int]], float, float, pd.DataFrame]:
     """
     Simulated annealing that optimises `scoring_fn` and logs the reference score
@@ -50,9 +54,14 @@ def simulated_annealing_selection(
     accepted = 0
     steps_since_best = 0
 
-    all_combos = list(
-        df[[model_col, year_col]].drop_duplicates().itertuples(index=False, name=None)
-    )
+    if sel_type == "full":
+        all_combos = list(
+            df[[model_col, year_col]]
+            .drop_duplicates()
+            .itertuples(index=False, name=None)
+        )
+    elif sel_type == "subset":
+        all_combos = subset
 
     # initialize first random draw and calculate scores
     idx = rng.choice(len(all_combos), n_select, replace=False)
@@ -69,7 +78,7 @@ def simulated_annealing_selection(
     )
 
     # reference score, not optimized on!
-    ref_score = ref_scoring_fn(
+    ref_score = best_ref_score = ref_scoring_fn(
         df=df,
         combos=current,
         variables=variables,
@@ -184,6 +193,50 @@ def build_selection_mask(
     """Return a boolean mask selecting rows whose (model, year) is in combos."""
     mi = pd.MultiIndex.from_arrays([df[model_col].to_numpy(), df[year_col].to_numpy()])
     return mi.isin(set(combos))  # .to_numpy()
+
+
+def wasserstein_score(
+    df: pd.DataFrame,
+    combos: Sequence[Tuple[str, int]],
+    variables: Sequence[str],
+    context: dict,
+    model_col: str = "model",
+    year_col: str = "year",
+) -> float:
+    """Wasserstein score: Wasserstein distance between full sample and selected years."""
+    idx_sel = build_selection_mask(df, combos, model_col=model_col, year_col=year_col)
+
+    sub_data = df.loc[idx_sel, variables].to_numpy()
+    full_data = df[variables].to_numpy()
+    # 50 projections is compromise between accuracy and speed. Better would be: 200
+    return sliced_wasserstein_distance(sub_data, full_data, n_projections=50)
+
+
+def wasserstein_seasonal_score(
+    df: pd.DataFrame,
+    combos: Sequence[Tuple[str, int]],
+    variables: Sequence[str],
+    context: dict,
+    model_col: str = "model",
+    year_col: str = "year",
+) -> float:
+    """Wasserstein score: Wasserstein distance between full sample and selected years."""
+    idx_sel = build_selection_mask(df, combos, model_col=model_col, year_col=year_col)
+
+    wasserstein_seasonal = []
+    for season, months in SEASONS.items():
+        in_season = df["Date"].dt.month.isin(months).values
+        # combine random draw boolean & seasonal boolean for subset
+        sub_mask = idx_sel & in_season
+        sub_data = df.loc[sub_mask, variables].to_numpy()
+        # only use seasonal boolean for full set
+        full_data = df.loc[in_season, variables].to_numpy()
+        # 50 projections is compromise between accuracy and speed. Better would be: 200
+        wasserstein_seasonal.append(
+            sliced_wasserstein_distance(sub_data, full_data, n_projections=50)
+        )
+    # base score on worst-performing season
+    return max(wasserstein_seasonal)
 
 
 def ks_total(
@@ -373,19 +426,3 @@ def combined_score(
     ) + w_joint * joint_tail_penalty(
         df, combos, variables, context, model_col=model_col, year_col=year_col
     )
-
-
-def wasserstein_score(
-    df: pd.DataFrame,
-    combos: Sequence[Tuple[str, int]],
-    variables: Sequence[str],
-    context: dict,
-    model_col: str = "model",
-    year_col: str = "year",
-) -> float:
-    """Wasserstein score: Wasserstein distance between full sample and selected years."""
-    idx_sel = build_selection_mask(df, combos, model_col=model_col, year_col=year_col)
-    sub_data = df.loc[idx_sel, variables].to_numpy()
-    full_data = df[variables].to_numpy()
-    # 50 projections is compromise between accuracy and speed. Better would be: 200
-    return sliced_wasserstein_distance(sub_data, full_data, n_projections=50)

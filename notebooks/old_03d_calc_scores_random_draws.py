@@ -19,19 +19,21 @@ from cluster_weather_years.constants import (
     HYDROLOGICAL_YEARS,
     MODELS,
     PROBS,
+    SEASONS,
 )
 from cluster_weather_years.functions import build_df_centroids, build_df_random
 
 # %% SETTINGS
 
-NUM_DRAWS = int(1e5)  # number of random draws to compare with, default = 1e5
-NUM_CLUSTERS = 5  # Number of Climate Years to calculate
+NUM_DRAWS = int(1e3) + 1  # number of random draws to compare with, default = 1e5
+NUM_CLUSTERS = 30  # Number of Climate Years to calculate
 TUNE = False  # whether to run in tuning mode (for thresholds)
 # ALL_MATCH_COUNTRIES = ["NL", "BE", "FR", "DE"]
 ALL_MATCH_COUNTRIES = ["NL"]
 
 # RUN_ID = "NL_20251024_1320"  # NL 30y; Run to analyze and compare to random draws
-RUN_ID = "NL_20251023_0942"  # NL 5y; Run to analyze and compare to random draws
+RUN_ID = "NL_20251104_1108"  # NL 30y seasonal_wasserstein.
+# RUN_ID = "NL_20251023_0942"  # NL 5y; Run to analyze and compare to random draws
 
 # RUN_ID_alternative = "NL_BE_FR_DE_20251015_0801"  # Multi, 30y
 
@@ -54,11 +56,13 @@ df_idx = df_daily.set_index(["model", "Hydrological_year"]).sort_index()
 keys = df_idx.index.unique().to_numpy()
 rng = np.random.default_rng(seed)
 
+# for now match without residual load, maybe change later
 vars_to_match = (
     [f"{country}_OFF_prod" for country in ALL_MATCH_COUNTRIES]
     + [f"{country}_ON_prod" for country in ALL_MATCH_COUNTRIES]
     + [f"{country}_SOLAR_prod" for country in ALL_MATCH_COUNTRIES]
     + [f"{country}_Demand" for country in ALL_MATCH_COUNTRIES]
+    + [f"{country}_Residual_load" for country in ALL_MATCH_COUNTRIES]
 )
 
 MODEL_YEARS = list(itertools.product(MODELS, HYDROLOGICAL_YEARS))
@@ -161,7 +165,8 @@ def score_datasets_v0(
             # 1. mean difference
             d_mean = float(np.abs((sub_arr.mean() - full_arr.mean()) / full_arr.mean()))
             # check if score is satisfying, if not continue to next subset and don't bother with more sophisticated scores or other variables
-            if d_mean > threshold_mean:
+            # NOTE: Don't discard on Residual load for now, might need a different (looser) threshold
+            if d_mean > threshold_mean and "Residual_load" not in var:
                 counters["mean_skips"] += 1
                 if random:
                     keep = False
@@ -170,7 +175,7 @@ def score_datasets_v0(
             # 2. energy score
             # TODO: make faster using approach of Jean. Don't understand it.
             energy_distance_score = energy_distance(sub_arr, full_arr)
-            if energy_distance_score > threshold_energy:
+            if energy_distance_score > threshold_energy and "Residual_load" not in var:
                 counters["energy_skips"] += 1
                 if random:
                     keep = False
@@ -359,7 +364,7 @@ def _init_wass(ref_np: np.ndarray) -> None:
 def _swd_worker(payload: Tuple[str, np.ndarray, int]) -> Tuple[str, float]:
     """Compute sliced-Wasserstein for one dataset against global reference."""
     ds_name, sub_np, n_proj = payload
-    swd = float(sliced_wasserstein_distance(_REF_WASS, sub_np, n_projections=n_proj))  # type: ignore[arg-type]
+    swd = float(sliced_wasserstein_distance(_REF_WASS, sub_np, n_projections=n_proj))
     return ds_name, swd
 
 
@@ -400,6 +405,115 @@ df_wass_scores = wasserstein_for_sufficient_parallel(
 )
 
 
+# %% Calculate seasonal scores on year-round sufficient datasets
+
+
+def compute_univariate_metrics(
+    sub_arr: np.ndarray, ref_arr: np.ndarray, probs: np.ndarray
+) -> dict:
+    """
+    Compute univariate metrics between two 1-D arrays.
+    """
+    d_mean = float(np.abs((sub_arr.mean() - ref_arr.mean()) / ref_arr.mean()))
+    energy_distance_score = float(energy_distance(sub_arr, ref_arr))
+    q_sub = np.quantile(sub_arr, probs)
+    q_ref = np.quantile(ref_arr, probs)
+    qq = np.abs(q_sub - q_ref)
+    return {
+        "d_mean": d_mean,
+        "energy_distance_score": energy_distance_score,
+        "qq_mae": float(qq.mean()),
+        "qq_mae_low": float(qq[:10].mean()),
+        "qq_mae_high": float(qq[-10:].mean()),
+    }
+
+
+def score_datasets_seasonal(
+    datasets: dict,
+    df_daily: pd.DataFrame,
+    columns: list[str],
+    probs: np.ndarray,
+) -> pd.DataFrame:
+    """
+    Score datasets (already filtered/good) on a seasonal basis.
+    """
+
+    records = []
+    for ds_name, df_sub in datasets.items():
+        for season_name, month_list in SEASONS.items():
+            df_daily_season = df_daily.query("Date.dt.month in @month_list")
+            df_sub_season = df_sub.query("Date.dt.month in @month_list")
+            for var in columns:
+                sub_arr = df_sub_season[var].to_numpy()
+                ref_arr = df_daily_season[var].to_numpy()
+
+                # compute metrics
+                metrics = compute_univariate_metrics(sub_arr, ref_arr, probs)
+                records.append(
+                    {
+                        "ds_name": ds_name,
+                        "season": season_name,
+                        "variable": var,
+                        **metrics,
+                    }
+                )
+    return pd.DataFrame.from_records(records)
+
+
+# TODO: REFACTOR INTO THE OTHER ONE. IF THIS SEEMS USEFUL!
+def wasserstein_seasonal(
+    datasets: dict,
+    df_daily: pd.DataFrame,
+    columns: list[str],
+    probs: np.ndarray,
+) -> pd.DataFrame:
+    """
+    Score datasets (already filtered/good) on a seasonal basis.
+    """
+
+    records = []
+    for ds_name, df_sub in datasets.items():
+        for season_name, month_list in SEASONS.items():
+            full_data = df_daily.query("Date.dt.month in @month_list")[
+                vars_to_match
+            ].to_numpy()
+            sub_data = df_sub.query("Date.dt.month in @month_list")[
+                vars_to_match
+            ].to_numpy()
+            wass = sliced_wasserstein_distance(sub_data, full_data, n_projections=50)
+
+            records.append(
+                {
+                    "ds_name": ds_name,
+                    "season": season_name,
+                    "wasserstein": wass,
+                }
+            )
+    return pd.DataFrame.from_records(records)
+
+
+df_seasonal_scores = score_datasets_seasonal(
+    datasets=final_datasets,
+    df_daily=df_daily,
+    columns=columns,
+    probs=PROBS,
+)
+
+df_wass_seasonal = wasserstein_seasonal(
+    datasets=final_datasets,
+    df_daily=df_daily,
+    columns=columns,
+    probs=PROBS,
+)
+
+idx = df_seasonal_scores.groupby("ds_name")["qq_mae"].idxmax()
+
+# TODO: Nog opslaan df_seasonal_scores
+df_peaks = df_seasonal_scores.loc[
+    idx, ["ds_name", "season", "variable", "qq_mae"]
+].sort_values("qq_mae")
+
+
 # %%
 
 filename = (
@@ -408,6 +522,14 @@ filename = (
 df_wass_scores.to_csv(f"{BASE_OUTPUT}/metrics_random_draws/wasserstein_{filename}.csv")
 df_score_all_good.to_csv(
     f"{BASE_OUTPUT}/metrics_random_draws/univariate_scores_{filename}.csv"
+)
+
+df_seasonal_scores.to_csv(
+    f"{BASE_OUTPUT}/metrics_random_draws/seasonal_scores_{filename}.csv"
+)
+
+df_wass_seasonal.to_csv(
+    f"{BASE_OUTPUT}/metrics_random_draws/wasserstein_seasonal_{filename}.csv"
 )
 
 with open(

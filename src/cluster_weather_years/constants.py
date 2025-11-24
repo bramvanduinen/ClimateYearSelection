@@ -9,17 +9,22 @@ HYDROLOGICAL_YEARS = range(2015, 2044)
 
 YEAR_COL = "Hydrological_year"
 
-THRES_HDD = 12.3  # values for Austria, taken from Katharina Gruber
-THRES_CDD = 25.5  # values for Austria, taken from Katharina Gruber
+THRES_HDD = 12.3  # values for Austria, taken from Katharina Gruber. Note: not used
+THRES_CDD = 25.5  # values for Austria, taken from Katharina Gruber. Note: not used
 
-WINDOW_ROLLING = 30  # days rolling mean for climatology
-MIN_WINDOW_ROLLING = 7  # minimum amount of days for rolling mean to be non-nan.
+WINDOW_ROLLING = 30  # days rolling mean for climatology. Note: not used
+MIN_WINDOW_ROLLING = (
+    7  # minimum amount of days for rolling mean to be non-nan. Note: not used
+)
 
 # quantiles for QQ-comparison
 dense_low = np.linspace(0.005, 0.05, 9, endpoint=False)
 coarse = np.linspace(0.05, 0.95, 91)
 dense_high = np.linspace(0.955, 0.995, 9)
 PROBS = np.concatenate([dense_low, coarse, dense_high])
+
+# extended winter/summer
+SEASONS = {"Winter": [10, 11, 12, 1, 2, 3], "Summer": [4, 5, 6, 7, 8, 9]}
 
 COLORS = cm.get_cmap("tab10").colors
 

@@ -2,7 +2,7 @@
 import os
 
 from cluster_weather_years.constants import BASE_OUTPUT
-from cluster_weather_years.sa import wasserstein_score
+from cluster_weather_years.sa import wasserstein_seasonal_score
 
 # filenames to be used as input
 DF_DAILY_FNAME = os.path.join(BASE_OUTPUT, "dataframes/df_daily_multi_country_v1.csv")
@@ -24,11 +24,11 @@ YEAR_COL = "Hydrological_year"
 # parameter grid for different SA runs
 PARAM_GRID = {
     "metric": [
-        wasserstein_score
-    ],  # [ad_seasonal, wasserstein_score, combined_score, ad_total],
-    "temp_start": [2.0, 3.0],
-    # "cooling_rate": [0.99, 0.995, 0.9975],
-    "cooling_rate": [0.9975, 0.999],
-    "max_iter": [10_000],
+        wasserstein_seasonal_score
+    ],  # [ad_seasonal, wasserstein_score, wasserstein_seasonal_score, combined_score, ad_total],
+    "temp_start": [2.0],
+    "cooling_rate": [0.99, 0.995, 0.9975],
+    # "cooling_rate": [0.9, 0.95, 0.97], # for quick testing
+    "max_iter": [5_000],
 }
-SEEDS = range(3)
+SEEDS = range(15)
