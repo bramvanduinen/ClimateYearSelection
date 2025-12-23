@@ -7,7 +7,7 @@ from matplotlib import cm
 YEARS = range(2015, 2045)
 HYDROLOGICAL_YEARS = range(2015, 2044)
 
-YEAR_COL = "Hydrological_year"
+# YEAR_COL = "Hydrological_year"
 
 THRES_HDD = 12.3  # values for Austria, taken from Katharina Gruber. Note: not used
 THRES_CDD = 25.5  # values for Austria, taken from Katharina Gruber. Note: not used

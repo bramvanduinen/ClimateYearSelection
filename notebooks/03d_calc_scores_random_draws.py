@@ -19,7 +19,7 @@ from cluster_weather_years.constants import (
     PROBS,
     SEASONS,
 )
-from cluster_weather_years.functions import build_df_centroids, build_df_random
+from cluster_weather_years.helper_functions import build_df_centroids, build_df_random
 
 # %% SETTINGS
 SAVE = True  # whether to save results

@@ -12,3 +12,7 @@ package-dir = {"" = "src"}
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[lint]
+# Disable fix for unused imports (`F401`).
+unfixable = ["F401"]

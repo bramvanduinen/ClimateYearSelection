@@ -4,40 +4,53 @@ import os
 from cluster_weather_years.constants import BASE_OUTPUT
 from cluster_weather_years.sa import wasserstein_seasonal_score
 
+### INPUT/OUTPUT SETTINGS ###
+RUNNAME = "testrun_refactor"
 # filenames to be used as input
-# updated version, all countries with scaled demand. Note: demand scaling is WRONG here!
 # TODO: Add hydro
-DF_DAILY_FNAME = os.path.join(BASE_OUTPUT, "dataframes/df_daily_all_countries_v1.csv")
-DF_PROD_DEMAND_FNAME = os.path.join(
-    BASE_OUTPUT, "dataframes/df_prod_demand_daily_all_countries_WRONG_DEMAND.csv"
+
+# capacity factors and hydro production (from PECD, downloaded in 00_download_pecd_data.ipynb)
+DF_DAILY_FNAME = os.path.join(BASE_OUTPUT, "dataframes/df_daily_all_countries_v3.csv")
+DF_HOURLY_FNAME = os.path.join(BASE_OUTPUT, "dataframes/df_hourly_all_countries_v3.csv")
+DF_HYDRO_FNAME = os.path.join(
+    BASE_OUTPUT, "dataframes/df_hydro_prod_all_countries_v1.parquet"
 )
 
-# previous version (NL, FR, BE, DE only all with NL capacities)
-# DF_DAILY_FNAME = os.path.join(BASE_OUTPUT, "dataframes/df_daily_multi_country_v1.csv")
-# DF_PROD_DEMAND_FNAME = os.path.join(
-#     BASE_OUTPUT, "dataframes/df_prod_demand_daily_multi_country_WRONG_CAPACITIES.csv"
-# )
+# combined production and demand dataframe (produced in 01_build_dataset.ipynb)
+DF_PROD_DEMAND_FNAME = os.path.join(
+    BASE_OUTPUT,
+    "dataframes/df_prod_demand_daily_all_countries_with_hydro_scaled_demand.parquet",
+)
+DF_PROD_DEMAND_FNAME_REGION = os.path.join(
+    BASE_OUTPUT,
+    "dataframes/df_prod_demand_daily_all_regions_with_hydro_scaled_demand.parquet",
+)
 
-# Variable matching mode: "full" or "residual" or "full_multi_country"
-MATCH_VARS = "full_multi_country"
-
-# MATCH_COUNTRIES = ["NL", "BE", "FR", "DE"]
-# MATCH_COUNTRIES = ["NL"]
+### SELECTION SETTINGS ###
 # fmt: off
-MATCH_COUNTRIES = [
-    "AL", "AT", "BE", "BA", "BG", "HR", "CZ", "DK", "EE",
-    "EL", "FI", "FR", "DE", "HU", "IE", "IT", "LV", "LT",
-    "LU", "MT", "ME", "MK", "NL", "NO", "PL", "PT", "RO",
-    "RS", "SK", "SI", "ES", "SE", "CH", "UK", "TR",
-] # full list of ENTSO-E countries (note: EL is Greece in Eurostat)
+# list of countries to consider for matching, can be all countries or a subset
+MATCH_COUNTRIES = ["NL", "BE"] # for quick testing
+# MATCH_COUNTRIES = [
+#     "AL", "AT", "BE", "BA", "BG", "HR", "CZ", "DK", "EE",
+#     "EL", "FI", "FR", "DE", "HU", "IE", "IT", "LV", "LT",
+#     "LU", "MT", "ME", "MK", "NL", "NO", "PL", "PT", "RO",
+#     "RS", "SK", "SI", "ES", "SE", "CH", "UK", "TR",
+# ] # full list of ENTSO-E countries (note: EL is Greece in Eurostat)
 # fmt: on
-RUNNAME = "all_countries_full_vars"
 
-NUM_CLUSTERS = 5  # number of clusters to be used by K-Medoids/K-Means
+# TODO: Add hydro
+VARS_TO_MATCH = (
+    [f"{country}_OFF_prod" for country in MATCH_COUNTRIES]
+    + [f"{country}_ON_prod" for country in MATCH_COUNTRIES]
+    + [f"{country}_SOLAR_prod" for country in MATCH_COUNTRIES]
+    + [f"{country}_Demand" for country in MATCH_COUNTRIES]
+    + [f"{country}_Residual_load" for country in MATCH_COUNTRIES]
+)
 
-# Default year column to operate on: "Hydrological_year" or "Calendar_year"
-YEAR_COL = "Hydrological_year"
+NUM_TO_SELECT = 5  # number of years to select
+YEAR_COL = "Hydrological_year"  # Default year column to operate on: "Hydrological_year" or "Calendar_year"
 
+### SA SETTINGS ###
 # parameter grid for different SA runs
 PARAM_GRID = {
     "metric": [
