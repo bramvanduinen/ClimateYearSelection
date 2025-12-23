@@ -5,8 +5,8 @@ __pycache__/
 /notebooks/wasserstein_illustration.ipynb
 /pecd_data/
 /weather_year_selection/
-/notebooks/shapefiles/*
-!/notebooks/shapefiles/.gitkeep
+/run/shapefiles/*
+!/run/shapefiles/.gitkeep
 /outputs/
 /wind_for_Gertie/
 
