@@ -104,8 +104,8 @@ def analyze_kmedoids(kmed, stats_scaled, medoid_idx, medoid_years, output_dir):
         ],  # exclude 'model', 'Hydrological_year', 'cluster'
         columns=["PC1", "PC2"],
     ).round(3)
-    print("PCA Loadings:\n", loadings)
-    print("\nExplained Variance Ratio:", pca.explained_variance_ratio_.round(3))
+    # print("PCA Loadings:\n", loadings)
+    # print("\nExplained Variance Ratio:", pca.explained_variance_ratio_.round(3))
     loadings.to_csv(f"{output_dir}/kmedoids_pca_loadings.csv")
 
 

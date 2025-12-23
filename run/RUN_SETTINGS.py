@@ -57,8 +57,8 @@ PARAM_GRID = {
         wasserstein_seasonal_score
     ],  # [ad_seasonal, wasserstein_score, wasserstein_seasonal_score, combined_score, ad_total],
     "temp_start": [2.0],
-    "cooling_rate": [0.99, 0.995, 0.9975],
-    # "cooling_rate": [0.9, 0.95, 0.97],  # for quick testing
+    # "cooling_rate": [0.99, 0.995, 0.9975],
+    "cooling_rate": [0.4],  # for quick testing
     "max_iter": [5_000],
 }
-SEEDS = range(15)
+SEEDS = range(3)

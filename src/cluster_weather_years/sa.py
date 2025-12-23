@@ -1,7 +1,9 @@
+import os
 import warnings
 from itertools import combinations
 from typing import Callable, Optional, Sequence, Tuple
 
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from ot import sliced_wasserstein_distance
@@ -62,6 +64,8 @@ def simulated_annealing_selection(
         )
     elif sel_type == "subset":
         all_combos = subset
+    else:
+        raise ValueError(f"Unknown sel_type: {sel_type}")
 
     # initialize first random draw and calculate scores
     idx = rng.choice(len(all_combos), n_select, replace=False)
@@ -184,6 +188,108 @@ def simulated_annealing_selection(
         temp *= cooling_rate
 
     return sorted(best), float(best_score), float(best_ref_score), pd.DataFrame(log)
+
+
+# %% Functions to run and log the SA algorithm in parallel mode
+
+
+def plot_sa_log(log_df, metric, alternative_metric, t0, cr, mi, seed, output_dir_sa):
+    """Plot evolution of scores after the run"""
+    fig, (ax1, ax3) = plt.subplots(
+        2, 1, figsize=(8, 6), sharex=True, gridspec_kw={"height_ratios": [2, 1]}
+    )
+
+    # ax2 = ax1.twinx()
+    ax4 = ax3.twinx()
+
+    metric_label = metric.__name__
+    label_ref = alternative_metric.__name__
+
+    # --- Top panel: scores ---
+    ax1.plot(log_df["iter"], log_df["score_tried"], label="Tried", color="C0")
+    ax1.plot(log_df["iter"], log_df["score_accepted"], label="Accepted", color="C1")
+    ax1.plot(log_df["iter"], log_df["score_best"], label="Best", color="tab:green")
+    ax1.set_ylabel(f"{metric_label} (lower is better)")
+    ax1.legend(loc="upper right")
+    # ax1.tick_params(axis="y", labelcolor="tab:blue")
+
+    # ax2.plot(log_df["iter"], log_df["score_ref"], label=label_ref, color="tab:orange")
+    # ax2.set_ylabel(f"{label_ref} (lower is better)", color="tab:orange")
+    # ax2.tick_params(axis="y", labelcolor="tab:orange")
+
+    ax1.set_title(f"SA evolution: t0={t0}, cr={cr}, mi={mi}, seed={seed}")
+
+    # --- Bottom panel: acceptance rate ---
+    ax3.plot(log_df["iter"], log_df["acc_rate"], color="tab:green")
+    ax3.tick_params(axis="y", labelcolor="tab:green")
+    ax4.plot(log_df["iter"], log_df["temp"], color="tab:red")
+    ax4.tick_params(axis="y", labelcolor="tab:red")
+    ax3.set_xlabel("iteration")
+    ax3.set_ylabel("acceptance rate")
+    ax4.set_ylabel("temperature")
+
+    fig.tight_layout()
+
+    # Save fig
+    plot_name = f"sa_{metric.__name__}_t0={t0}_cr={cr}_seed={seed}.png"
+    os.makedirs(os.path.join(output_dir_sa, "plots"), exist_ok=True)
+    fig.savefig(os.path.join(output_dir_sa, f"plots/{plot_name}"), bbox_inches="tight")
+    plt.close(fig)
+
+
+def run_sa(constant_inputs, metric, t0=2.0, cr=0.98, mi=5_000, seed=42):
+    """Run a single SA instance with given parameters and return results dict."""
+    # TODO: Refactor to avoid having to pass this.
+    df_daily, vars_to_match, NUM_CLUSTERS, context, output_dir_sa, YEAR_COL = (
+        constant_inputs
+    )
+
+    if metric == ad_total:
+        alternative_metric = combined_score
+    elif metric == wasserstein_score:
+        alternative_metric = wasserstein_seasonal_score
+    elif metric == wasserstein_seasonal_score:
+        alternative_metric = wasserstein_score
+    else:
+        alternative_metric = ad_total
+
+    selected, best_score, best_ref_score, log_df = simulated_annealing_selection(
+        df=df_daily,
+        variables=vars_to_match,
+        scoring_fn=metric,
+        ref_scoring_fn=alternative_metric,
+        n_select=NUM_CLUSTERS,
+        context=context,
+        model_col="model",
+        year_col=YEAR_COL,
+        temp_start=t0,
+        cooling_rate=cr,
+        max_iter=mi,
+        random_state=seed,
+    )
+
+    sel_dict = {
+        "selected": selected,
+        "optimized_metric": metric.__name__,
+        "ref_metric": alternative_metric.__name__,
+        "best_score": best_score,
+        "best_ref_score": best_ref_score,
+        "seed": seed,
+        "t0": t0,
+        "cr": cr,
+        "mi": mi,
+    }
+
+    # plot logs of SA run and save the plot
+    plot_sa_log(log_df, metric, alternative_metric, t0, cr, mi, seed, output_dir_sa)
+
+    return sel_dict
+
+
+def _sa_job(job):
+    """Run a single SA job: (seed, metric, t0, cr, mi, constant_inputs) -> sel_dict."""
+    seed, metric, t0, cr, mi, constant_inputs = job
+    return run_sa(constant_inputs, metric, t0, cr, mi, seed)
 
 
 # %% SCORES
