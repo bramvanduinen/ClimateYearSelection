@@ -19,7 +19,7 @@ from cluster_weather_years.constants import (
     INPUT_DIR_WIND,
     MODELS,
     MODELS_FNAME,
-    YEAR_COL,
+    # YEAR_COL,
     YEARS,
 )
 
