@@ -28,12 +28,16 @@ SEASONS = {"Winter": [10, 11, 12, 1, 2, 3], "Summer": [4, 5, 6, 7, 8, 9]}
 
 COLORS = cm.get_cmap("tab10").colors
 
-BASE = "/net/pc230050/nobackup/users/duinen/04_weather_year_selection/pecd_data"
+BASE_INPUT = (
+    "/net/pc230050/nobackup/users/duinen/04_weather_year_selection/inputs/pecd_data"
+)
 BASE_OUTPUT = "/net/pc230050/nobackup/users/duinen/04_weather_year_selection/outputs/"
 
-OUTPUT_DIR_WIND = os.path.join(BASE, "wind")
-OUTPUT_DIR_SOLAR = os.path.join(BASE, "solar")
-OUTPUT_DIR_TEMP = os.path.join(BASE, "temp")
+INPUT_DIR_WIND = os.path.join(BASE_INPUT, "energy/wind")
+INPUT_DIR_SOLAR = os.path.join(BASE_INPUT, "energy/solar")
+INPUT_DIR_TEMP = os.path.join(BASE_INPUT, "energy/temp")
+INPUT_DIR_HYDRO_RAW = os.path.join(BASE_INPUT, "energy/hydro_weekly")
+INPUT_DIR_HYDRO = os.path.join(BASE_INPUT, "energy/hydro")
 
 MODELS = [
     "cmcc_cm2_sr5",
@@ -52,10 +56,20 @@ MODELS_FNAME = [
     "BCC-_BCCS",
     "MRI-_MRM2",
 ]
-COUNTRIES = ["NL", "DE", "BE", "FR"]  # for now
+# COUNTRIES = ["NL", "DE", "BE", "FR"]  # for now
+# fmt: off
+COUNTRIES = [
+    "AL", "AT", "BE", "BA", "BG", "HR", "CZ", "DK", "EE",
+    "EL", "FI", "FR", "DE", "HU", "IE", "IT", "LV", "LT",
+    "LU", "MT", "ME", "MK", "NL", "NO", "PL", "PT", "RO",
+    "RS", "SK", "SI", "ES", "SE", "CH", "UK", "TR",
+] # full list of ENTSO-E countries
+# fmt: on
+
+HYDRO_VARS = ["HRO", "HRG", "HPO"]
 
 
-OUTPUT_DIRS = [OUTPUT_DIR_WIND, OUTPUT_DIR_SOLAR, OUTPUT_DIR_TEMP]
+INPUT_DIRS = [INPUT_DIR_WIND, INPUT_DIR_SOLAR, INPUT_DIR_TEMP]
 
 # Derived paths for cached dataframes and outputs used by SA notebook
 

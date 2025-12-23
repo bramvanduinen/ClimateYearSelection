@@ -1,4 +1,5 @@
 # %%
+import glob
 import os
 from typing import Sequence
 
@@ -10,15 +11,14 @@ from matplotlib.lines import Line2D
 from cluster_weather_years.constants import (
     COLORS,
     COUNTRIES,
-    MIN_WINDOW_ROLLING,
+    HYDRO_VARS,
+    INPUT_DIR_HYDRO,
+    INPUT_DIR_HYDRO_RAW,
+    INPUT_DIR_SOLAR,
+    INPUT_DIR_TEMP,
+    INPUT_DIR_WIND,
     MODELS,
     MODELS_FNAME,
-    OUTPUT_DIR_SOLAR,
-    OUTPUT_DIR_TEMP,
-    OUTPUT_DIR_WIND,
-    THRES_CDD,
-    THRES_HDD,
-    WINDOW_ROLLING,
     YEAR_COL,
     YEARS,
 )
@@ -66,47 +66,62 @@ def build_df():
 
     for model_fname, model_name in zip(MODELS_FNAME, MODELS):
         for year in YEARS:
-            file_wind_off = f"P_CMI6_{model_fname}_WOF_NA---_Pecd_NUT0_S{year}01010000_E{year}12312300_CFR_TIM_01h_NA-_noc_org_20_SP245_ReGrB_PhM04_PECD4.2_fv1.csv"
-            file_wind_on = f"P_CMI6_{model_fname}_WON_NA---_Pecd_NUT0_S{year}01010000_E{year}12312300_CFR_TIM_01h_NA-_noc_org_30_SP245_ReGrB_PhM04_PECD4.2_fv1.csv"
+            if (
+                model_fname == "BCC-_BCCS"
+            ):  # use fv2 files for this model, only those corrected for wind
+                file_wind_off = f"P_CMI6_{model_fname}_WOF_NA---_Pecd_PEOF_S{year}01010000_E{year}12312300_CFR_TIM_01h_NA-_noc_org_20_SP245_ReGrB_PhM04_PECD4.2_fv2_NUTS0_level.csv"
+                file_wind_on = f"P_CMI6_{model_fname}_WON_NA---_Pecd_PEON_S{year}01010000_E{year}12312300_CFR_TIM_01h_NA-_noc_org_30_SP245_ReGrB_PhM04_PECD4.2_fv2_NUTS0_level.csv"
+            else:
+                file_wind_off = f"P_CMI6_{model_fname}_WOF_NA---_Pecd_PEOF_S{year}01010000_E{year}12312300_CFR_TIM_01h_NA-_noc_org_20_SP245_ReGrB_PhM04_PECD4.2_fv1_NUTS0_level.csv"
+                file_wind_on = f"P_CMI6_{model_fname}_WON_NA---_Pecd_PEON_S{year}01010000_E{year}12312300_CFR_TIM_01h_NA-_noc_org_30_SP245_ReGrB_PhM04_PECD4.2_fv1_NUTS0_level.csv"
             file_solar = f"P_CMI6_{model_fname}_SPV_0000m_Pecd_NUT0_S{year}01010000_E{year}12312300_CFR_TIM_01h_NA-_noc_org_61_SP245_NA---_PhM03_PECD4.2_fv1.csv"
             file_temp = f"P_CMI6_{model_fname}_TA-_0002m_Pecd_NUT0_S{year}01010000_E{year}12312300_INS_TIM_01h_NA-_cdf_org_NA_SP245_NA---_NA---_PECD4.2_fv1.csv"
+            # file_hydro = f"P_CMI6_{model_fname}_HRO_0000m_Pecd_SZON_S203712280000_E203812200000_NRG_TIM_07d_NA-_noc_org_NA_SP245_NA---_StRnF_PECD4.2_fv1.csv"
 
             df_wind_off = pd.read_csv(
-                os.path.join(OUTPUT_DIR_WIND, file_wind_off),
-                skiprows=52,
+                os.path.join(INPUT_DIR_WIND, file_wind_off),
+                # skiprows=52,
             )
             df_wind_on = pd.read_csv(
-                os.path.join(OUTPUT_DIR_WIND, file_wind_on),
-                skiprows=52,
+                os.path.join(INPUT_DIR_WIND, file_wind_on),
+                # skiprows=52,
             )
 
             df_solar = pd.read_csv(
-                os.path.join(OUTPUT_DIR_SOLAR, file_solar),
+                os.path.join(INPUT_DIR_SOLAR, file_solar),
                 skiprows=52,
             )
 
             df_temp = pd.read_csv(
-                os.path.join(OUTPUT_DIR_TEMP, file_temp),
+                os.path.join(INPUT_DIR_TEMP, file_temp),
                 skiprows=52,
             )
 
             df_year = pd.DataFrame(
                 {
-                    "Date": df_wind_off["Date"],
+                    "Date": df_solar["Date"],
                     **{
-                        f"{country}_OFF": df_wind_off[f"{country}_OFF"]
+                        f"{country}_OFF": df_wind_off.get(
+                            f"{country}_OFF", pd.Series(np.nan, index=df_wind_off.index)
+                        )
                         for country in COUNTRIES
                     },
                     **{
-                        f"{country}_ON": df_wind_on[f"{country}"]
+                        f"{country}_ON": df_wind_on.get(
+                            f"{country}", pd.Series(np.nan, index=df_wind_on.index)
+                        )
                         for country in COUNTRIES
                     },
                     **{
-                        f"{country}_SOLAR": df_solar[f"{country}"]
+                        f"{country}_SOLAR": df_solar.get(
+                            f"{country}", pd.Series(np.nan, index=df_solar.index)
+                        )
                         for country in COUNTRIES
                     },
                     **{
-                        f"{country}_TEMP": df_temp[f"{country}"]
+                        f"{country}_TEMP": df_temp.get(
+                            f"{country}", pd.Series(np.nan, index=df_temp.index)
+                        )
                         for country in COUNTRIES
                     },
                     "model": model_name,
@@ -124,39 +139,92 @@ def build_df():
         .reset_index()
         .sort_values(["model", "Date"])
     )
+
+    df_hourly["Hydrological_year"] = (
+        df_hourly["Date"] - pd.DateOffset(months=3)
+    ).dt.year  # start hydrological year 1st of April
+    df_hourly["Calendar_year"] = df_hourly["Date"].dt.year
+
     df_daily["Hydrological_year"] = (
         df_daily["Date"] - pd.DateOffset(months=3)
     ).dt.year  # start hydrological year 1st of April
     df_daily["Calendar_year"] = df_daily["Date"].dt.year
 
-    # compute HDD and CDD
-
-    CDD = df_daily["NL_TEMP"] - THRES_CDD
-    CDD = CDD.where(CDD > 0, 0)
-    CDD_val = CDD.sum()
-    df_daily["CDD"] = CDD
-
-    HDD = THRES_HDD - df_daily["NL_TEMP"]
-    HDD = HDD.where(HDD > 0, 0)
-    HDD_val = HDD.sum()
-    df_daily["HDD"] = HDD
-
-    num_cols = df_daily.select_dtypes(include="number").columns
-
-    # perform 30-day rolling mean
-    df_nl_rolling = (
-        df_daily.groupby("model")[num_cols]
-        .rolling(window=WINDOW_ROLLING, min_periods=MIN_WINDOW_ROLLING, center=False)
-        .mean()
-    ).reset_index()
-
-    df_nl_rolling.pop("level_1")
-    df_nl_rolling["Date"] = df_daily["Date"]
-
-    df_nl_rolling = df_nl_rolling.set_index(["model", "Date"])
     df_daily = df_daily.set_index(["model", "Date"])
+    df_hourly = df_hourly.set_index(["model", "Date"])
+    return df_hourly, df_daily
 
-    return df_daily, df_nl_rolling
+
+# functions for hydro processing
+HOURS_PER_WEEK = 7 * 24
+DAYS_PER_WEEK = 7
+
+
+def convert_to_hourly(df_hydro):
+    """
+    Convert weekly MWh data to hourly GWh using forward fill,
+    simply averaging weekly values over all the hours in that week."""
+    # Convert weekly MWh → hourly GWh
+    df_per_hour = df_hydro / (HOURS_PER_WEEK * 1000)
+
+    # Extend by 7 days so the final weekly value can fill into its full week
+    start = df_per_hour.index.min()
+    end = df_per_hour.index.max() + pd.Timedelta(days=7) - pd.Timedelta(hours=1)
+    hourly_index = pd.date_range(start, end, freq="h")
+
+    df_hydro_hourly = df_per_hour.reindex(hourly_index).ffill(limit=HOURS_PER_WEEK - 1)
+
+    df_hydro_hourly.index.name = "Date"
+    return df_hydro_hourly
+
+
+def sum_by_country(df_hydro: pd.DataFrame) -> pd.DataFrame:
+    """
+    Aggregate hydro generation by country using the first two characters
+    of each column name.
+
+    Countries not present in the input data are returned as NaN.
+    """
+
+    country_map = {}
+    for col in df_hydro.columns:
+        cc = col[:2]
+        if cc == "GR":
+            country_map[col] = "EL"
+        elif cc in COUNTRIES:
+            country_map[col] = cc
+
+    df_country = df_hydro.rename(columns=country_map).T.groupby(level=0).sum().T
+
+    return df_country.reindex(columns=COUNTRIES, fill_value=np.nan)
+
+
+def process_hydro_file(df_hydro: pd.DataFrame) -> pd.DataFrame:
+    """Process hydro data to get hourly values, aggregated per country."""
+    df_hydro_country = sum_by_country(df_hydro)
+    df_hydro_country_per_hour = convert_to_hourly(df_hydro_country)
+    return df_hydro_country_per_hour
+
+
+def process_all_hydro_files():
+    """Build hydro generation dataframe for COUNTRIES based on all raw CSV files downloaded from PECD."""
+
+    for model_fname, _ in zip(MODELS_FNAME, MODELS):
+        for hydro_var in HYDRO_VARS:
+            filename_hydro = f"P_CMI6_{model_fname}_{hydro_var}*"
+            fname_out = (
+                f"P_CMI6_{model_fname}_{hydro_var}_{YEARS[0]}_{YEARS[-1]}_NUTS0.csv"
+            )
+            files_hydro = glob.glob(os.path.join(INPUT_DIR_HYDRO_RAW, filename_hydro))
+            df_hydro_raw = pd.concat(
+                (pd.read_csv(f, comment="#") for f in files_hydro), ignore_index=True
+            )
+            df_hydro_raw["Date"] = pd.to_datetime(df_hydro_raw["Date"])
+            df_hydro_raw = df_hydro_raw.set_index("Date").sort_index()
+            df_hydro_var = process_hydro_file(df_hydro_raw).add_suffix(
+                f"_{hydro_var}_prod"
+            )
+            df_hydro_var.to_csv(os.path.join(INPUT_DIR_HYDRO, fname_out))
 
 
 def standardize_df(
@@ -483,3 +551,6 @@ def calc_clim_and_year_data(df_nl_rolling, column):
     clim_std = np.nanstd(nl_matrix, axis=0)
     days = np.arange(1, max_days + 1)
     return nl_matrix, clim_mean, clim_std, days
+
+
+# %%

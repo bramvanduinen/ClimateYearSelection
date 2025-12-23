@@ -6,6 +6,7 @@ from datetime import datetime
 from itertools import product
 
 import matplotlib.pyplot as plt
+import numpy as np
 import pandas as pd
 from sa_settings import (
     DF_PROD_DEMAND_FNAME,
@@ -13,6 +14,7 @@ from sa_settings import (
     MATCH_VARS,
     NUM_CLUSTERS,
     PARAM_GRID,
+    RUNNAME,
     SEEDS,
     YEAR_COL,
 )
@@ -33,25 +35,32 @@ from cluster_weather_years.sa import (
 # %%
 # create folder for output of this run
 rundate = datetime.now().strftime("%Y%m%d_%H%M")
-country_string = "_".join(MATCH_COUNTRIES)
-SA_DIR_RUN = os.path.join(SA_OUTPUT_DIR, f"run_{country_string}_{rundate}/")
+# country_string = "_".join(MATCH_COUNTRIES)
+SA_DIR_RUN = os.path.join(SA_OUTPUT_DIR, f"run_{RUNNAME}_{rundate}/")
 os.makedirs(SA_DIR_RUN, exist_ok=True)
 # export copy of sa_settings.py to outputs/simulated_annealing/sa_settings.py
 shutil.copy("sa_settings.py", os.path.join(SA_DIR_RUN, "sa_settings_of_run.py"))
 # %%
 # Build dataframes and standardize
 print("Taking df_prod_demand_daily from memory...")
-vars_to_match = (
+vars_to_match_all = (
     [f"{country}_OFF_prod" for country in MATCH_COUNTRIES]
     + [f"{country}_ON_prod" for country in MATCH_COUNTRIES]
     + [f"{country}_SOLAR_prod" for country in MATCH_COUNTRIES]
     + [f"{country}_Demand" for country in MATCH_COUNTRIES]
     + [f"{country}_Residual_load" for country in MATCH_COUNTRIES]
 )
-vars_to_standardize = vars_to_match.copy()
 
 df_daily = pd.read_csv(DF_PROD_DEMAND_FNAME, index_col=0)
 df_daily["Date"] = pd.to_datetime(df_daily["Date"])
+
+# remove nan columns (e.g. if country has no offshore production) so that they don't mess with the calculations.
+mask_ref = ~np.isnan(df_daily[vars_to_match_all]).any(axis=0)
+vars_to_match = list(np.array(vars_to_match_all)[mask_ref.values])
+
+vars_to_standardize = vars_to_match.copy()
+
+
 df_std = standardize_df(df_daily, vars_to_standardize)
 
 # remove incomplete hydrological years, if this is the selected year column
@@ -91,20 +100,23 @@ def plot_sa_log(log_df, metric, alternative_metric, t0, cr, mi, seed):
         2, 1, figsize=(8, 6), sharex=True, gridspec_kw={"height_ratios": [2, 1]}
     )
 
-    ax2 = ax1.twinx()
+    # ax2 = ax1.twinx()
     ax4 = ax3.twinx()
 
-    label_opt = metric.__name__
+    metric_label = metric.__name__
     label_ref = alternative_metric.__name__
 
     # --- Top panel: scores ---
-    ax1.plot(log_df["iter"], log_df["score_opt"], label=label_opt, color="tab:blue")
-    ax1.set_ylabel(f"{label_opt} (lower is better)", color="tab:blue")
-    ax1.tick_params(axis="y", labelcolor="tab:blue")
+    ax1.plot(log_df["iter"], log_df["score_tried"], label="Tried", color="C0")
+    ax1.plot(log_df["iter"], log_df["score_accepted"], label="Accepted", color="C1")
+    ax1.plot(log_df["iter"], log_df["score_best"], label="Best", color="tab:green")
+    ax1.set_ylabel(f"{metric_label} (lower is better)")
+    ax1.legend(loc="upper right")
+    # ax1.tick_params(axis="y", labelcolor="tab:blue")
 
-    ax2.plot(log_df["iter"], log_df["score_ref"], label=label_ref, color="tab:orange")
-    ax2.set_ylabel(f"{label_ref} (lower is better)", color="tab:orange")
-    ax2.tick_params(axis="y", labelcolor="tab:orange")
+    # ax2.plot(log_df["iter"], log_df["score_ref"], label=label_ref, color="tab:orange")
+    # ax2.set_ylabel(f"{label_ref} (lower is better)", color="tab:orange")
+    # ax2.tick_params(axis="y", labelcolor="tab:orange")
 
     ax1.set_title(f"SA evolution: t0={t0}, cr={cr}, mi={mi}, seed={seed}")
 
@@ -120,7 +132,7 @@ def plot_sa_log(log_df, metric, alternative_metric, t0, cr, mi, seed):
     fig.tight_layout()
 
     # Save fig
-    plot_name = f"Selected_{MATCH_VARS}_{MATCH_COUNTRIES}_{YEAR_COL}_{metric.__name__}_{t0}_{cr}_{mi}_{seed}.png"
+    plot_name = f"Selected_{MATCH_VARS}_{RUNNAME}_{YEAR_COL}_{metric.__name__}_{t0}_{cr}_{mi}_{seed}.png"
     os.makedirs(os.path.join(SA_DIR_RUN, "plots"), exist_ok=True)
     fig.savefig(os.path.join(SA_DIR_RUN, f"plots/{plot_name}"), bbox_inches="tight")
     plt.close(fig)

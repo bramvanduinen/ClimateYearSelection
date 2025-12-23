@@ -165,8 +165,11 @@ def simulated_annealing_selection(
             {
                 "iter": it,
                 "temp": temp,
-                "score_opt": current_score,
-                "score_ref": ref_score,
+                # "score_opt": current_score,
+                "score_accepted": current_score,
+                "score_best": best_score,
+                "score_tried": neighbour_score,
+                "score_ref": ref_score,  # CAN PROBABLY BE REMOVED, NOT THAT USEFUL ANYMORE
                 "acc_rate": acc_rate,
             }
         )
@@ -208,6 +211,11 @@ def wasserstein_score(
 
     sub_data = df.loc[idx_sel, variables].to_numpy()
     full_data = df[variables].to_numpy()
+
+    # Replace NaNs with zeros to avoid issues in distance calculation
+    sub_data[np.isnan(sub_data)] = 0
+    full_data[np.isnan(full_data)] = 0
+
     # 50 projections is compromise between accuracy and speed. Better would be: 200
     return sliced_wasserstein_distance(sub_data, full_data, n_projections=50)
 
@@ -231,6 +239,11 @@ def wasserstein_seasonal_score(
         sub_data = df.loc[sub_mask, variables].to_numpy()
         # only use seasonal boolean for full set
         full_data = df.loc[in_season, variables].to_numpy()
+
+        # Replace NaNs with zeros to avoid issues in distance calculation
+        sub_data[np.isnan(sub_data)] = 0
+        full_data[np.isnan(full_data)] = 0
+
         # 50 projections is compromise between accuracy and speed. Better would be: 200
         wasserstein_seasonal.append(
             sliced_wasserstein_distance(sub_data, full_data, n_projections=50)
