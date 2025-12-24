@@ -25,13 +25,12 @@ from cluster_weather_years.constants import (
 
 
 # %% building dataframes of subsets
-def build_df_centroids(df_daily, selected, mode="Hydrological_year"):
+def build_df_from_modelyears(df_daily, modelyears, mode="Hydrological_year"):
     """
-    Build df with daily data of selected years
+    Build df with daily data of selected modelyears
     """
     frames_centroids = []
-    for i, (model, year) in enumerate(selected):
-        # model_centroid, year_centroid = row["model"], row["Date"]
+    for i, (model, year) in enumerate(modelyears):
         if mode == "Hydrological_year":
             df_centroid = df_daily.query(
                 f"model == '{model}' and Hydrological_year == {year}"
@@ -48,6 +47,22 @@ def build_df_centroids(df_daily, selected, mode="Hydrological_year"):
     return pd.concat(frames_centroids, ignore_index=True)
 
 
+def draw_random_modelyears(model_years, num_jobs, num_to_select, rng):
+    """
+    Draw random subsets of model-years, saved to a list-of-tuples.
+    """
+    random_draws_list = []
+
+    for _ in range(num_jobs):
+        selected_idx = rng.choice(
+            len(model_years),
+            size=num_to_select,
+            replace=False,
+        )
+        random_draws_list.append(tuple(model_years[i] for i in selected_idx))
+    return random_draws_list
+
+
 def build_df_random(
     df_idx: pd.DataFrame,
     keys: np.ndarray,
@@ -59,7 +74,9 @@ def build_df_random(
     return df_idx.loc[keys[sel]].reset_index()
 
 
-# %%
+# %% Functions for building prod/demand dataframes from raw CSV files
+
+
 def build_df():
     """Build dataframe for COUNTRIES based on all raw CSV files downloaded from PECD."""
     frames_hourly = []
@@ -227,6 +244,7 @@ def process_all_hydro_files():
             df_hydro_var.to_csv(os.path.join(INPUT_DIR_HYDRO, fname_out))
 
 
+# TODO: NOT USED ANYMORE, CAN BE DELETED I THINK
 def standardize_df(
     df: pd.DataFrame,
     variables: Sequence[str],

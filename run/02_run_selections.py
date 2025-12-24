@@ -18,11 +18,16 @@ from RUN_SETTINGS import (
     VARS_TO_MATCH,
     YEAR_COL,
 )
+from tqdm import tqdm
 
 # pylint: enable=import-error
 from cluster_weather_years.constants import BASE_OUTPUT, HYDROLOGICAL_YEARS, MODELS
-
-# from cluster_weather_years.helper_functions import build_df_random
+from cluster_weather_years.helper_functions import draw_random_modelyears
+from cluster_weather_years.hierarchical_brute_force import (
+    build_random_df,
+    score_df,
+    score_tuning,
+)
 from cluster_weather_years.k_medoids import k_medoids_clustering
 from cluster_weather_years.sa import run_sa
 
@@ -36,6 +41,8 @@ df_daily = df_daily.query("Hydrological_year in @HYDROLOGICAL_YEARS")
 df_daily = df_daily.set_index(["model", "Date"])
 
 vars_non_nan = [var for var in VARS_TO_MATCH if not df_daily[var].isna().all()]
+df_ref = df_daily[["Hydrological_year", "Calendar_year"] + VARS_TO_MATCH]
+
 # %%
 #### 1. Create output directories #####
 print("##### 1. Creating output directories... #####")
@@ -62,15 +69,9 @@ rng = np.random.default_rng(SEEDS[0])
 # Use same amount of jobs as SA
 num_jobs = len(list(product(SEEDS, product(*PARAM_GRID.values()))))
 
-baseline_random_draws = []
-
-for job_id in range(num_jobs):
-    selected_idx = rng.choice(
-        len(model_years),
-        size=NUM_TO_SELECT,
-        replace=False,
-    )
-    baseline_random_draws.append(tuple(model_years[i] for i in selected_idx))
+baseline_random_draws = draw_random_modelyears(
+    model_years, num_jobs, NUM_TO_SELECT, rng
+)
 
 baseline_random_draws_df = pd.DataFrame({"model_years": baseline_random_draws})
 baseline_random_draws_df.to_csv(
@@ -83,18 +84,18 @@ print(f"Baseline random draws completed. Results saved to {output_dir_random}.")
 print("##### 3. Performing K-Medoids Clustering... #####")
 
 # TODO: check results
-k_medoids_clustering(df_daily, NUM_TO_SELECT, vars_non_nan, output_dir_kmedoids)
+k_medoids_clustering(df_ref, NUM_TO_SELECT, vars_non_nan, output_dir_kmedoids)
 
 # %%
 #### 4. Simulated Annealing #####
 print("##### 4. Performing Simulated Annealing... #####")
 # TODO: Make everything work with consistent indexing of df
-df_daily = df_daily.reset_index()
+df_ref = df_ref.reset_index()
 
 # build jobs
 constant_inputs = {
-    "df_daily": df_daily,
-    "vars_to_match": VARS_TO_MATCH,
+    "df_daily": df_ref,
+    "vars_to_match": vars_non_nan,
     "NUM_CLUSTERS": NUM_TO_SELECT,
     "output_dir_sa": output_dir_sa,
     "YEAR_COL": YEAR_COL,
@@ -132,4 +133,65 @@ print(
 )
 
 # %%
-#### 4. Hierarchical Subset Brute-Force #####
+#### 5. Hierarchical Subset Brute-Force #####
+# NOTE: scales very poorly with increasing vars_to_match
+print("##### 5. Performing Hierarchical Subset Brute-Force Search... #####")
+
+# define constants for brute-force search
+p = 50  # percentile threshold
+tuning_iterations = int(1e2)
+iterations = int(1e4)
+
+thresholds_mean, thresholds_energy = score_tuning(
+    df_ref,
+    model_years,
+    tuning_iterations,
+    NUM_TO_SELECT,
+    vars_non_nan,
+    rng,
+    YEAR_COL,
+    percentile_threshold=p,
+)
+
+# %%
+results_pass = []
+results_fail = []
+modelyears_pass = []
+
+for i in tqdm(range(iterations)):
+    df_random, drawn_model_years = build_random_df(
+        df_ref, model_years, NUM_TO_SELECT, rng, YEAR_COL
+    )
+
+    passed, record = score_df(
+        df_ref,
+        df_random,
+        drawn_model_years,
+        i,
+        thresholds_mean,
+        thresholds_energy,
+        columns=vars_non_nan,
+        skip_check=True,
+    )
+
+    if passed:
+        results_pass.append(record)
+        modelyears_pass.append(drawn_model_years)
+    else:
+        results_fail.append(record)
+
+df_pass = pd.DataFrame(results_pass)
+df_fail = pd.DataFrame(results_fail)
+
+skip_rate = len(df_fail) / iterations
+print(skip_rate)
+
+# quick breakdown of failure reasons
+print(
+    df_fail.groupby(["fail_check", "fail_var"])
+    .size()
+    .sort_values(ascending=False)
+    .head(20)
+)
+
+# %%
