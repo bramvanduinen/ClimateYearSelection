@@ -1,6 +1,7 @@
 # %%
 #### imports ####
 import os
+import shutil
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from datetime import datetime
 from itertools import product
@@ -11,10 +12,13 @@ import pandas as pd
 # pylint: disable=import-error
 from RUN_SETTINGS import (
     DF_PROD_DEMAND_FNAME,
+    HBF_ITERATIONS,
     NUM_TO_SELECT,
+    P_THRES,
     PARAM_GRID,
     RUNNAME,
     SEEDS,
+    TUNING_ITERATIONS,
     VARS_TO_MATCH,
     YEAR_COL,
 )
@@ -55,10 +59,15 @@ output_dir_run = os.path.join(BASE_OUTPUT, f"{RUNNAME}")
 output_dir_random = os.path.join(output_dir_run, "random_draws")
 output_dir_kmedoids = os.path.join(output_dir_run, "k_medoids")
 output_dir_sa = os.path.join(output_dir_run, "simulated_annealing")
+output_dir_hbf = os.path.join(output_dir_run, "hierarchical_brute_force")
 
 os.makedirs(output_dir_random, exist_ok=True)
 os.makedirs(output_dir_kmedoids, exist_ok=True)
 os.makedirs(output_dir_sa, exist_ok=True)
+os.makedirs(output_dir_hbf, exist_ok=True)
+
+# Copy RUN_SETTINGS.py to output dir for record keeping
+shutil.copy("RUN_SETTINGS.py", os.path.join(output_dir_run, "RUN_SETTINGS_of_run.py"))
 
 # %%
 #### 2. Baseline Random Draws #####
@@ -137,20 +146,15 @@ print(
 # NOTE: scales very poorly with increasing vars_to_match
 print("##### 5. Performing Hierarchical Subset Brute-Force Search... #####")
 
-# define constants for brute-force search
-p = 50  # percentile threshold
-tuning_iterations = int(1e2)
-iterations = int(1e4)
-
 thresholds_mean, thresholds_energy = score_tuning(
     df_ref,
     model_years,
-    tuning_iterations,
+    TUNING_ITERATIONS,
     NUM_TO_SELECT,
     vars_non_nan,
     rng,
     YEAR_COL,
-    percentile_threshold=p,
+    percentile_threshold=P_THRES,
 )
 
 # %%
@@ -158,7 +162,7 @@ results_pass = []
 results_fail = []
 modelyears_pass = []
 
-for i in tqdm(range(iterations)):
+for i in tqdm(range(HBF_ITERATIONS)):
     df_random, drawn_model_years = build_random_df(
         df_ref, model_years, NUM_TO_SELECT, rng, YEAR_COL
     )
@@ -183,7 +187,9 @@ for i in tqdm(range(iterations)):
 df_pass = pd.DataFrame(results_pass)
 df_fail = pd.DataFrame(results_fail)
 
-skip_rate = len(df_fail) / iterations
+df_pass.to_csv(os.path.join(output_dir_hbf, "hbf_df_pass.csv"))
+
+skip_rate = len(df_fail) / HBF_ITERATIONS
 print(skip_rate)
 
 # quick breakdown of failure reasons

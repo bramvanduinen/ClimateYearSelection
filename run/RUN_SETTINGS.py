@@ -62,3 +62,8 @@ PARAM_GRID = {
     "max_iter": [5_000],
 }
 SEEDS = range(3)
+
+### Hierarchical Brute-Force (HBF) Settings ###
+P_THRES = 50  # percentile threshold for univariates
+TUNING_ITERATIONS = int(1e2)
+HBF_ITERATIONS = int(1e3)
