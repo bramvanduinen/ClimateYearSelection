@@ -24,7 +24,7 @@ from cluster_weather_years.constants import BASE_OUTPUT, HYDROLOGICAL_YEARS, MOD
 
 # from cluster_weather_years.helper_functions import build_df_random
 from cluster_weather_years.k_medoids import k_medoids_clustering
-from cluster_weather_years.sa import _sa_job
+from cluster_weather_years.sa import run_sa
 
 # %%
 #### 0. Load data #####
@@ -74,7 +74,7 @@ for job_id in range(num_jobs):
 
 baseline_random_draws_df = pd.DataFrame({"model_years": baseline_random_draws})
 baseline_random_draws_df.to_csv(
-    os.path.join(output_dir_random, "baseline_random_draws.csv")
+    os.path.join(output_dir_random, "baseline_random_draw_year_selections.csv")
 )
 
 print(f"Baseline random draws completed. Results saved to {output_dir_random}.")
@@ -88,29 +88,34 @@ k_medoids_clustering(df_daily, NUM_TO_SELECT, vars_non_nan, output_dir_kmedoids)
 # %%
 #### 4. Simulated Annealing #####
 print("##### 4. Performing Simulated Annealing... #####")
-# TODO: context should go out of there, refactor sa module. Also too much stuff here still
-# TODO: Make everything work with consistent indexing
+# TODO: Make everything work with consistent indexing of df
 df_daily = df_daily.reset_index()
-context = {}
-constant_inputs = [
-    df_daily,
-    VARS_TO_MATCH,
-    NUM_TO_SELECT,
-    context,
-    output_dir_sa,
-    YEAR_COL,
+
+# build jobs
+constant_inputs = {
+    "df_daily": df_daily,
+    "vars_to_match": VARS_TO_MATCH,
+    "NUM_CLUSTERS": NUM_TO_SELECT,
+    "output_dir_sa": output_dir_sa,
+    "YEAR_COL": YEAR_COL,
+}
+param_set = [
+    {
+        "seed": seed,
+        "metric": metric,
+        "t0": t0,
+        "cr": cr,
+        "mi": mi,
+    }
+    for seed, (metric, t0, cr, mi) in product(SEEDS, product(*PARAM_GRID.values()))
 ]
 
-jobs = [
-    (seed, *vals, constant_inputs)
-    for seed, vals in product(SEEDS, product(*PARAM_GRID.values()))
-]
+# run jobs in parallel
+n_workers = min(os.cpu_count() or 1, len(param_set))
+
 results = []
-
-n_workers = min(os.cpu_count() or 1, len(jobs))
-
 with ProcessPoolExecutor(max_workers=n_workers) as ex:
-    futures = [ex.submit(_sa_job, j) for j in jobs]
+    futures = [ex.submit(run_sa, inputs=constant_inputs, **job) for job in param_set]
     for i, fut in enumerate(as_completed(futures), start=1):
         sel_dict = fut.result()
         results.append(sel_dict)
@@ -118,11 +123,12 @@ with ProcessPoolExecutor(max_workers=n_workers) as ex:
             f"Experiment {i} done: {sel_dict['optimized_metric']} = {sel_dict['best_score']:.2f}"
         )
 
+# save results
 df_results = pd.DataFrame(results)
-df_results.to_csv(os.path.join(output_dir_sa, "results_grid.csv"))
+df_results.to_csv(os.path.join(output_dir_sa, "sa_year_selections.csv"))
 best = min(results, key=lambda d: d["best_score"])
 print(
-    f"Run done, best score: {best['best_score']:.2f}, best selection: {best['selected']}"
+    f"SA run done, best score: {best['best_score']:.2f}, best selection: {best['selected']}"
 )
 
 # %%

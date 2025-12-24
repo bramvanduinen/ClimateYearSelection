@@ -1,16 +1,16 @@
 import os
-import warnings
-from itertools import combinations
 from typing import Callable, Optional, Sequence, Tuple
 
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-from ot import sliced_wasserstein_distance
-from scipy.stats import anderson_ksamp, ks_2samp
 from tqdm import tqdm
 
-from cluster_weather_years.constants import SEASONS
+from cluster_weather_years.scores import (
+    ad_total,
+    wasserstein_score,
+    wasserstein_seasonal_score,
+)
 
 # %% Main SA algorithm
 
@@ -21,7 +21,6 @@ def simulated_annealing_selection(
     n_select: int,
     scoring_fn: Callable[..., float],
     ref_scoring_fn: Callable[..., float],
-    context: Optional[dict] = None,
     model_col: str = "model",
     year_col: str = "year",
     temp_start: float = 1.0,
@@ -76,7 +75,6 @@ def simulated_annealing_selection(
         df=df,
         combos=current,
         variables=variables,
-        context=context,
         model_col=model_col,
         year_col=year_col,
     )
@@ -86,7 +84,6 @@ def simulated_annealing_selection(
         df=df,
         combos=current,
         variables=variables,
-        context=context,
         model_col=model_col,
         year_col=year_col,
     )
@@ -132,7 +129,6 @@ def simulated_annealing_selection(
             df=df,
             combos=neighbour,
             variables=variables,
-            context=context,
             model_col=model_col,
             year_col=year_col,
         )
@@ -141,7 +137,6 @@ def simulated_annealing_selection(
             df=df,
             combos=current,
             variables=variables,
-            context=context,
             model_col=model_col,
             year_col=year_col,
         )
@@ -237,21 +232,20 @@ def plot_sa_log(log_df, metric, alternative_metric, t0, cr, mi, seed, output_dir
     plt.close(fig)
 
 
-def run_sa(constant_inputs, metric, t0=2.0, cr=0.98, mi=5_000, seed=42):
+def run_sa(inputs, metric, t0=2.0, cr=0.98, mi=5_000, seed=42):
     """Run a single SA instance with given parameters and return results dict."""
-    # TODO: Refactor to avoid having to pass this.
-    df_daily, vars_to_match, NUM_CLUSTERS, context, output_dir_sa, YEAR_COL = (
-        constant_inputs
-    )
+    df_daily = inputs["df_daily"]
+    vars_to_match = inputs["vars_to_match"]
+    NUM_CLUSTERS = inputs["NUM_CLUSTERS"]
+    output_dir_sa = inputs["output_dir_sa"]
+    YEAR_COL = inputs["YEAR_COL"]
 
-    if metric == ad_total:
-        alternative_metric = combined_score
-    elif metric == wasserstein_score:
-        alternative_metric = wasserstein_seasonal_score
-    elif metric == wasserstein_seasonal_score:
-        alternative_metric = wasserstein_score
-    else:
-        alternative_metric = ad_total
+    alt_metric = {
+        ad_total: wasserstein_score,
+        wasserstein_score: wasserstein_seasonal_score,
+        wasserstein_seasonal_score: wasserstein_score,
+    }
+    alternative_metric = alt_metric.get(metric, ad_total)
 
     selected, best_score, best_ref_score, log_df = simulated_annealing_selection(
         df=df_daily,
@@ -259,7 +253,6 @@ def run_sa(constant_inputs, metric, t0=2.0, cr=0.98, mi=5_000, seed=42):
         scoring_fn=metric,
         ref_scoring_fn=alternative_metric,
         n_select=NUM_CLUSTERS,
-        context=context,
         model_col="model",
         year_col=YEAR_COL,
         temp_start=t0,
@@ -286,262 +279,8 @@ def run_sa(constant_inputs, metric, t0=2.0, cr=0.98, mi=5_000, seed=42):
     return sel_dict
 
 
-def _sa_job(job):
-    """Run a single SA job: (seed, metric, t0, cr, mi, constant_inputs) -> sel_dict."""
-    seed, metric, t0, cr, mi, constant_inputs = job
-    return run_sa(constant_inputs, metric, t0, cr, mi, seed)
-
-
-# %% SCORES
-def build_selection_mask(
-    df: pd.DataFrame,
-    combos: Sequence[Tuple[str, int]],
-    model_col: str = "model",
-    year_col: str = "year",
-) -> np.ndarray:
-    """Return a boolean mask selecting rows whose (model, year) is in combos."""
-    mi = pd.MultiIndex.from_arrays([df[model_col].to_numpy(), df[year_col].to_numpy()])
-    return mi.isin(set(combos))  # .to_numpy()
-
-
-def wasserstein_score(
-    df: pd.DataFrame,
-    combos: Sequence[Tuple[str, int]],
-    variables: Sequence[str],
-    context: dict,
-    model_col: str = "model",
-    year_col: str = "year",
-) -> float:
-    """Wasserstein score: Wasserstein distance between full sample and selected years."""
-    idx_sel = build_selection_mask(df, combos, model_col=model_col, year_col=year_col)
-
-    sub_data = df.loc[idx_sel, variables].to_numpy()
-    full_data = df[variables].to_numpy()
-
-    # Replace NaNs with zeros to avoid issues in distance calculation
-    sub_data[np.isnan(sub_data)] = 0
-    full_data[np.isnan(full_data)] = 0
-
-    # 50 projections is compromise between accuracy and speed. Better would be: 200
-    return sliced_wasserstein_distance(sub_data, full_data, n_projections=50)
-
-
-def wasserstein_seasonal_score(
-    df: pd.DataFrame,
-    combos: Sequence[Tuple[str, int]],
-    variables: Sequence[str],
-    context: dict,
-    model_col: str = "model",
-    year_col: str = "year",
-) -> float:
-    """Wasserstein score: Wasserstein distance between full sample and selected years."""
-    idx_sel = build_selection_mask(df, combos, model_col=model_col, year_col=year_col)
-
-    wasserstein_seasonal = []
-    for season, months in SEASONS.items():
-        in_season = df["Date"].dt.month.isin(months).values
-        # combine random draw boolean & seasonal boolean for subset
-        sub_mask = idx_sel & in_season
-        sub_data = df.loc[sub_mask, variables].to_numpy()
-        # only use seasonal boolean for full set
-        full_data = df.loc[in_season, variables].to_numpy()
-
-        # Replace NaNs with zeros to avoid issues in distance calculation
-        sub_data[np.isnan(sub_data)] = 0
-        full_data[np.isnan(full_data)] = 0
-
-        # 50 projections is compromise between accuracy and speed. Better would be: 200
-        wasserstein_seasonal.append(
-            sliced_wasserstein_distance(sub_data, full_data, n_projections=50)
-        )
-    # base score on worst-performing season
-    return max(wasserstein_seasonal)
-
-
-def ks_total(
-    df: pd.DataFrame,
-    combos: Sequence[Tuple[str, int]],
-    variables: Sequence[str],
-    context: Optional[dict] = None,
-    model_col: str = "model",
-    year_col: str = "year",
-) -> float:
-    """Unweighted Kolmogorov–Smirnov score (lower ⇒ closer)."""
-    idx_sel = build_selection_mask(df, combos, model_col=model_col, year_col=year_col)
-    sub = df.loc[idx_sel, variables]
-    return float(
-        sum(
-            ks_2samp(df[v].to_numpy(), sub[v].to_numpy(), method="auto").statistic
-            for v in variables
-        )
-    )
-
-
-def _ad_stat(a: np.ndarray, b: np.ndarray) -> float:
-    with warnings.catch_warnings():
-        warnings.filterwarnings(
-            "ignore",
-            message=r"p-value (?:capped|floored).*",
-            category=UserWarning,
-        )
-        return anderson_ksamp([a, b]).statistic
-
-
-def ad_total(
-    df: pd.DataFrame,
-    combos: Sequence[Tuple[str, int]],
-    variables: Sequence[str],
-    context: Optional[dict] = None,
-    model_col: str = "model",
-    year_col: str = "year",
-) -> float:
-    """Anderson–Darling k-sample score (lower ⇒ closer; tail-weighted)."""
-    idx_sel = build_selection_mask(df, combos, model_col=model_col, year_col=year_col)
-    sub = df.loc[idx_sel, variables]
-    full_disjoint = df.loc[~df.index.isin(sub.index), variables]
-    return float(
-        sum(_ad_stat(full_disjoint[v].to_numpy(), sub[v].to_numpy()) for v in variables)
-    )
-
-
-def ad_seasonal(
-    df: pd.DataFrame,
-    combos: Sequence[Tuple[str, int]],
-    variables: Sequence[str],
-    context: Optional[dict] = None,
-    model_col: str = "model",
-    year_col: str = "year",
-    date_col: str = "Date",
-) -> float:
-    """
-    Compute Anderson–Darling k-sample statistics for each season separately.
-
-    Args:
-        df: Input DataFrame with datetime column.
-        combos: Tuples of (model, year) for selection.
-        variables: Variables to evaluate.
-        context: Optional context (unused, for compatibility).
-        model_col: Column with model identifiers.
-        year_col: Column with year identifiers.
-        date_col: Column with datetime values.
-
-    Returns:
-        AD Scores summed over variable and seasons.
-    """
-    idx_sel = build_selection_mask(df, combos, model_col=model_col, year_col=year_col)
-    sub = df.loc[idx_sel, [date_col] + variables]
-    full_disjoint = df.loc[~df.index.isin(sub.index), [date_col] + variables]
-
-    # Ensure datetime
-    sub[date_col] = pd.to_datetime(sub[date_col])
-    full_disjoint[date_col] = pd.to_datetime(full_disjoint[date_col])
-
-    # Add seasons
-    sub["season"] = sub[date_col].dt.month % 12 // 3 + 1
-    full_disjoint["season"] = full_disjoint[date_col].dt.month % 12 // 3 + 1
-    season_map = {1: "DJF", 2: "MAM", 3: "JJA", 4: "SON"}
-
-    result = 0
-
-    # Seasonal distributions
-    for v in variables:
-        for s_code, s_name in season_map.items():
-            sub_s = sub.loc[sub["season"] == s_code, v].to_numpy()
-            full_s = full_disjoint.loc[full_disjoint["season"] == s_code, v].to_numpy()
-            if len(sub_s) > 0 and len(full_s) > 0:
-                result += float(_ad_stat(full_s, sub_s))
-
-    return result
-
-
-def precompute_tail_quantiles(
-    df: pd.DataFrame,
-    variables: Sequence[str],
-    tails: dict,
-    probs: Sequence[float] = (0.10, 0.05, 0.02),
-) -> tuple[dict[float, np.ndarray], np.ndarray, tuple[float, ...]]:
-    """Precompute per-variable thresholds for each probability and tail direction.
-
-    Returns (qmap, is_high, probs_tuple)
-    - qmap: dict[p] -> np.ndarray of thresholds aligned with `variables`
-    - is_high: boolean array indicating high-tail for each variable
-    - probs_tuple: tuple of probabilities in increasing severity order
-    """
-    X = df[variables].to_numpy()
-    is_high = np.array([tails.get(v, "low") == "high" for v in variables], dtype=bool)
-    probs_tuple = tuple(probs)
-    qmap: dict[float, np.ndarray] = {}
-    for p in probs_tuple:
-        low = np.quantile(X, p, axis=0)
-        high = np.quantile(X, 1 - p, axis=0)
-        qmap[p] = np.where(is_high, high, low)
-    return qmap, is_high, probs_tuple
-
-
-def joint_tail_penalty(
-    df: pd.DataFrame,
-    combos: Sequence[Tuple[str, int]],
-    variables: Sequence[str],
-    context: dict,
-    model_col: str = "model",
-    year_col: str = "year",
-) -> float:
-    """Match joint tail co-exceedance rates between full sample and selected years.
-
-    Lower = better. Uses precomputed thresholds and tail directions from `context`.
-    """
-    if context is None:
-        raise ValueError(
-            "joint_tail_penalty requires a context with 'qmap' and 'is_high'"
-        )
-
-    idx_sel = build_selection_mask(df, combos, model_col=model_col, year_col=year_col)
-    X = df[variables].to_numpy()
-    # Drop rows with any NaNs across variables for full sample and subset
-    ok = ~np.isnan(X).any(axis=1)
-    X = X[ok]
-    X_sub = X[idx_sel[ok]]
-
-    is_high: np.ndarray = context["is_high"]
-    qmap: dict[float, np.ndarray] = context["qmap"]
-    probs: tuple[float, ...] = context.get("probs", tuple(qmap.keys()))
-    max_order: int = int(context.get("max_order", 3))
-
-    d = len(variables)
-    eps = 1e-12
-    score = 0.0
-
-    for p in probs:
-        q = qmap[p]
-        # Indicators for each variable being in the requested tail
-        # low-tail => <= q; high-tail => >= q
-        ind_full = np.where(is_high, X >= q, X <= q)
-        ind_sub = np.where(is_high, X_sub >= q, X_sub <= q)
-
-        for order in range(1, min(max_order, d) + 1):
-            for idxs in combinations(range(d), order):
-                jf = np.logical_and.reduce([ind_full[:, k] for k in idxs]).mean()
-                js = np.logical_and.reduce([ind_sub[:, k] for k in idxs]).mean()
-                if jf < eps:
-                    continue
-                score += ((js - jf) / (jf + eps)) ** 2
-
-    return float(score)
-
-
-def combined_score(
-    df: pd.DataFrame,
-    combos: Sequence[Tuple[str, int]],
-    variables: Sequence[str],
-    context: dict,
-    model_col: str = "model",
-    year_col: str = "year",
-) -> float:
-    """Combined score: AD distance + joint-tail penalty with weights from context."""
-    w_ad: float = float(context.get("w_ad", 1.0))
-    w_joint: float = float(context.get("w_joint", 1.0))
-    return w_ad * ad_total(
-        df, combos, variables, context, model_col=model_col, year_col=year_col
-    ) + w_joint * joint_tail_penalty(
-        df, combos, variables, context, model_col=model_col, year_col=year_col
-    )
+# TODO: delete?
+# def _sa_job(job):
+#     """Run a single SA job: (seed, metric, t0, cr, mi, constant_inputs) -> sel_dict."""
+#     seed, metric, t0, cr, mi, constant_inputs = job
+#     return run_sa(constant_inputs, metric, t0, cr, mi, seed)

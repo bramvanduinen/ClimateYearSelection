@@ -63,7 +63,7 @@ def k_medoids_clustering(
         ["model", year_col, "cluster"]
     ]  # only save relevant columns
     medoid_years_to_save.to_csv(
-        f"{output_dir}/kmedoids_selected_years.csv", index="cluster"
+        f"{output_dir}/kmedoids_year_selection.csv", index="cluster"
     )
 
     analyze_kmedoids(kmed, stats_scaled, medoid_idx, medoid_years, output_dir)
