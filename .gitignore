@@ -9,6 +9,7 @@ __pycache__/
 !/run/shapefiles/.gitkeep
 /outputs/
 /wind_for_Gertie/
+/src/cluster_weather_years/TESTVERSION_hierarchical_brute_force.py
 
 # Distribution / packaging
 .Python

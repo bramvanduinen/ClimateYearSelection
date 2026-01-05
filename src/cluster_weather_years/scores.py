@@ -52,6 +52,7 @@ def wasserstein_seasonal_score(
     year_col: str = "year",
 ) -> float:
     """Wasserstein score: Wasserstein distance between full sample and selected years."""
+
     idx_sel = build_selection_mask(df, combos, model_col=model_col, year_col=year_col)
 
     wasserstein_seasonal = []

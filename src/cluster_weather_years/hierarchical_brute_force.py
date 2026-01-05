@@ -23,6 +23,7 @@ from cluster_weather_years.helper_functions import (
     build_df_from_modelyears,
     draw_random_modelyears,
 )
+from cluster_weather_years.scores import wasserstein_seasonal_score
 
 
 def build_random_df(df_ref, model_years, num_to_select, rng, year_col):
@@ -56,7 +57,7 @@ def score_tuning(
     year_col,
     percentile_threshold=25,
 ):
-    """Score a single dataset against reference data for tuning the thresholds to p10"""
+    """Score a datasets against reference data for tuning the thresholds to a given percentile."""
     d_means, energy_distance_score = {}, {}
     ref, ref_mean, ref_quantiles = reference_statistics(df_ref, columns)
     for i in range(tune_samples):
@@ -153,6 +154,15 @@ def score_df(
         n_projections=50,
     )
 
+    # wasserstein_seasonal
+    wasserstein_seasonal = wasserstein_seasonal_score(
+        df_ref,
+        modelyears_sub,
+        columns,
+        model_col="model",
+        year_col="Hydrological_year",
+    )
+
     return True, {
         "ds_name": df_name,
         "passed": True,
@@ -163,6 +173,7 @@ def score_df(
         "qq_mae_high": qq_mae_high,
         "qq_mae_low": qq_mae_low,
         "wasserstein": wasserstein,
+        "wasserstein_seasonal": wasserstein_seasonal,
     }
 
 

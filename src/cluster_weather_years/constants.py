@@ -28,16 +28,14 @@ SEASONS = {"Winter": [10, 11, 12, 1, 2, 3], "Summer": [4, 5, 6, 7, 8, 9]}
 
 COLORS = cm.get_cmap("tab10").colors
 
-BASE_INPUT = (
-    "/net/pc230050/nobackup/users/duinen/04_weather_year_selection/inputs/pecd_data"
-)
+BASE_INPUT = "/net/pc230050/nobackup/users/duinen/04_weather_year_selection/inputs/"
 BASE_OUTPUT = "/net/pc230050/nobackup/users/duinen/04_weather_year_selection/outputs/"
 
-INPUT_DIR_WIND = os.path.join(BASE_INPUT, "energy/wind")
-INPUT_DIR_SOLAR = os.path.join(BASE_INPUT, "energy/solar")
-INPUT_DIR_TEMP = os.path.join(BASE_INPUT, "energy/temp")
-INPUT_DIR_HYDRO_RAW = os.path.join(BASE_INPUT, "energy/hydro_weekly")
-INPUT_DIR_HYDRO = os.path.join(BASE_INPUT, "energy/hydro")
+INPUT_DIR_WIND = os.path.join(BASE_INPUT, "pecd_data/energy/wind")
+INPUT_DIR_SOLAR = os.path.join(BASE_INPUT, "pecd_data/energy/solar")
+INPUT_DIR_TEMP = os.path.join(BASE_INPUT, "pecd_data/energy/temp")
+INPUT_DIR_HYDRO_RAW = os.path.join(BASE_INPUT, "pecd_data/energy/hydro_weekly")
+INPUT_DIR_HYDRO = os.path.join(BASE_INPUT, "pecd_data/energy/hydro")
 
 MODELS = [
     "cmcc_cm2_sr5",
@@ -70,7 +68,3 @@ HYDRO_VARS = ["HRO", "HRG", "HPO"]
 
 
 INPUT_DIRS = [INPUT_DIR_WIND, INPUT_DIR_SOLAR, INPUT_DIR_TEMP]
-
-# Derived paths for cached dataframes and outputs used by SA notebook
-
-SA_OUTPUT_DIR = os.path.join(BASE_OUTPUT, "simulated_annealing")

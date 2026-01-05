@@ -93,7 +93,11 @@ def simulated_annealing_selection(
         {"iter": 0, "temp": temp, "score_opt": current_score, "score_ref": ref_score}
     ]
 
-    for it in tqdm(range(1, max_iter + 1)):
+    n_it = np.log(temp_end / temp_start) / np.log(cooling_rate)
+
+    for it in tqdm(
+        range(1, max_iter + 1), total=int(min(max_iter, n_it)), desc="SA iterations"
+    ):
         if temp < temp_end:
             break
 
