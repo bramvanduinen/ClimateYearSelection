@@ -5,7 +5,46 @@ from cluster_weather_years.constants import BASE_OUTPUT
 from cluster_weather_years.sa import wasserstein_seasonal_score
 
 ### INPUT/OUTPUT SETTINGS ###
-RUNNAME = "testrun_refactor"
+RUNNAME = "testrun_v2"
+RUN_SA = False  # whether to run simulated annealing
+RUN_HBF = True  # whether to run hierarchical brute-force
+
+### SELECTION SETTINGS ###
+# fmt: off
+# list of countries to consider for matching, can be all countries or a subset
+MATCH_COUNTRIES = ["NL", "BE"] # for quick testing
+# MATCH_COUNTRIES = [
+#     "AL", "AT", "BE", "BA", "BG", "HR", "CZ", "DK", "EE",
+#     "EL", "FI", "FR", "DE", "HU", "IE", "IT", "LV", "LT",
+#     "LU", "MT", "ME", "MK", "NL", "NO", "PL", "PT", "RO",
+#     "RS", "SK", "SI", "ES", "SE", "CH", "UK", "TR",
+# ] # full list of ENTSO-E countries (note: EL is Greece in Eurostat)
+# fmt: on
+
+NUM_TO_SELECT = 5  # number of years to select
+YEAR_COL = "Hydrological_year"  # Default year column to operate on: "Hydrological_year" or "Calendar_year"
+
+### SA SETTINGS ###
+# parameter grid for different SA runs
+PARAM_GRID = {
+    "metric": [
+        wasserstein_seasonal_score
+    ],  # [ad_seasonal, wasserstein_score, wasserstein_seasonal_score, combined_score, ad_total],
+    "temp_start": [2.0],
+    # "cooling_rate": [0.99, 0.995, 0.9975],
+    "cooling_rate": [0.4],  # for quick testing
+    "max_iter": [5_000],
+}
+SEEDS = range(3)
+
+### Hierarchical Brute-Force (HBF) Settings ###
+P_THRES = 30  # percentile threshold for univariates
+TUNING_ITERATIONS = int(1e3)
+HBF_ITERATIONS = int(1e5)
+BATCH_SIZE = 100
+
+### DATA SETTINGS ###
+
 # filenames to be used as input
 # TODO: Add hydro
 
@@ -26,18 +65,6 @@ DF_PROD_DEMAND_FNAME_REGION = os.path.join(
     "dataframes/df_prod_demand_daily_all_regions_with_hydro_scaled_demand.parquet",
 )
 
-### SELECTION SETTINGS ###
-# fmt: off
-# list of countries to consider for matching, can be all countries or a subset
-MATCH_COUNTRIES = ["NL", "BE"] # for quick testing
-# MATCH_COUNTRIES = [
-#     "AL", "AT", "BE", "BA", "BG", "HR", "CZ", "DK", "EE",
-#     "EL", "FI", "FR", "DE", "HU", "IE", "IT", "LV", "LT",
-#     "LU", "MT", "ME", "MK", "NL", "NO", "PL", "PT", "RO",
-#     "RS", "SK", "SI", "ES", "SE", "CH", "UK", "TR",
-# ] # full list of ENTSO-E countries (note: EL is Greece in Eurostat)
-# fmt: on
-
 # TODO: Add hydro
 VARS_TO_MATCH = (
     [f"{country}_OFF_prod" for country in MATCH_COUNTRIES]
@@ -46,24 +73,3 @@ VARS_TO_MATCH = (
     + [f"{country}_Demand" for country in MATCH_COUNTRIES]
     + [f"{country}_Residual_load" for country in MATCH_COUNTRIES]
 )
-
-NUM_TO_SELECT = 5  # number of years to select
-YEAR_COL = "Hydrological_year"  # Default year column to operate on: "Hydrological_year" or "Calendar_year"
-
-### SA SETTINGS ###
-# parameter grid for different SA runs
-PARAM_GRID = {
-    "metric": [
-        wasserstein_seasonal_score
-    ],  # [ad_seasonal, wasserstein_score, wasserstein_seasonal_score, combined_score, ad_total],
-    "temp_start": [2.0],
-    # "cooling_rate": [0.99, 0.995, 0.9975],
-    "cooling_rate": [0.4],  # for quick testing
-    "max_iter": [5_000],
-}
-SEEDS = range(3)
-
-### Hierarchical Brute-Force (HBF) Settings ###
-P_THRES = 50  # percentile threshold for univariates
-TUNING_ITERATIONS = int(1e2)
-HBF_ITERATIONS = int(1e3)

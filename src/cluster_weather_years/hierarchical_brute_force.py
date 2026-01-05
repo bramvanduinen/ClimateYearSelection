@@ -67,7 +67,7 @@ def score_tuning(
             if energy_distance_score.get(var) is None:
                 energy_distance_score[var] = []
             sub_arr = df_sub[var].to_numpy()
-            # d_mean = float(abs((sub_arr.mean() - ref_mean[var]) / ref_mean[var]))
+
             d_mean = abs(sub_arr.mean() - ref_mean[var])
             energy_score = float(energy_distance(sub_arr, ref[var]))
 
@@ -164,3 +164,70 @@ def score_df(
         "qq_mae_low": qq_mae_low,
         "wasserstein": wasserstein,
     }
+
+
+# %% Functions for parallel execution
+
+# ---- globals for worker processes (set once via initializer) ----
+_G = {}
+
+
+def init_worker(
+    df_ref,
+    model_years,
+    thresholds_mean,
+    thresholds_energy,
+    num_to_select,
+    year_col,
+    columns,
+    skip_check,
+):
+    """Store read-only config in worker-global dict (avoids passing every task)."""
+    _G["df_ref"] = df_ref
+    _G["model_years"] = model_years
+    _G["thresholds_mean"] = thresholds_mean
+    _G["thresholds_energy"] = thresholds_energy
+    _G["num_to_select"] = num_to_select
+    _G["year_col"] = year_col
+    _G["columns"] = columns
+    _G["skip_check"] = skip_check
+
+
+def run_batch(batch_idx, batch_size, iterations, seed):
+    """Run one batch and return (pass_records, fail_records, pass_modelyears)."""
+
+    rng_batch = np.random.default_rng(seed)
+    start = batch_idx * batch_size
+    stop = min(start + batch_size, iterations)
+
+    pass_records = []
+    fail_records = []
+    pass_modelyears = []
+
+    for i in range(start, stop):
+        df_random, drawn_model_years = build_random_df(
+            _G["df_ref"],
+            _G["model_years"],
+            _G["num_to_select"],
+            rng_batch,
+            _G["year_col"],
+        )
+
+        passed, record = score_df(
+            _G["df_ref"],
+            df_random,
+            drawn_model_years,
+            i,
+            _G["thresholds_mean"],
+            _G["thresholds_energy"],
+            columns=_G["columns"],
+            skip_check=_G["skip_check"],
+        )
+
+        if passed:
+            pass_records.append(record)
+            pass_modelyears.append(drawn_model_years)
+        else:
+            fail_records.append(record)
+
+    return pass_records, fail_records, pass_modelyears
