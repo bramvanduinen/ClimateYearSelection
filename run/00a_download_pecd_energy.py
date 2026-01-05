@@ -52,13 +52,13 @@ request_hydro = {
     "spatial_resolution": ["szon"],
 }
 
-output_dir_wind = Path(f"{BASE_INPUT}/energy/wind_peof_peon")
+output_dir_wind = Path(f"{BASE_INPUT}/pecd_data/energy/wind_peof_peon")
 output_dir_wind.mkdir(exist_ok=True)
-output_dir_solar = Path(f"{BASE_INPUT}/energy/solar")
+output_dir_solar = Path(f"{BASE_INPUT}/pecd_data/energy/solar")
 output_dir_solar.mkdir(exist_ok=True)
-output_dir_temp = Path(f"{BASE_INPUT}/energy/temp")
+output_dir_temp = Path(f"{BASE_INPUT}/pecd_data/energy/temp")
 output_dir_temp.mkdir(exist_ok=True)
-output_dir_hydro = Path(f"{BASE_INPUT}/energy/hydro")
+output_dir_hydro = Path(f"{BASE_INPUT}/pecd_data/energy/hydro")
 output_dir_hydro.mkdir(exist_ok=True)
 
 client = cdsapi.Client()

@@ -151,6 +151,7 @@ if RUN_SA:
         f"SA run done, best score: {best['best_score']:.2f}, best selection: {best['selected']}"
     )
 else:
+    df_ref = df_ref.reset_index()
     print("##### 4. Skipping Simulated Annealing as per settings... #####")
 
 # %%
@@ -222,7 +223,7 @@ if RUN_HBF:
             results_fail.extend(fail_rec)
             modelyears_pass.extend(pass_years)
 
-    df_pass = pd.DataFrame(results_pass)
+    df_pass = pd.DataFrame(results_pass).sort_values("wasserstein")
     df_fail = pd.DataFrame(results_fail)[["fail_check", "fail_var"]]
 
     skip_rate = len(df_fail) / HBF_ITERATIONS
@@ -236,7 +237,7 @@ if RUN_HBF:
     )
 
     df_pass.to_csv(os.path.join(output_dir_hbf, "hbf_df_pass.csv"), index=True)
-
+# %%
 else:
     print("##### 5. Skipping Hierarchical Brute-Force as per settings... #####")
 # %%
