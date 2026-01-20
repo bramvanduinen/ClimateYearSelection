@@ -148,7 +148,7 @@ if RUN_SA:
     df_results.to_csv(os.path.join(output_dir_sa, "sa_year_selections.csv"))
     best = min(results, key=lambda d: d["best_score"])
     print(
-        f"SA run done, best score: {best['best_score']:.2f}, best selection: {best['selected']}"
+        f"SA run done, best score: {best['best_score']:.2f}, best selection: {best['model_years']}"
     )
 else:
     df_ref = df_ref.reset_index()
@@ -181,8 +181,6 @@ if RUN_HBF:
     df_thres.merge(df_thres_mean, on="Variable").to_csv(
         os.path.join(output_dir_hbf, "hbf_thresholds.csv"), index=True
     )
-
-    # %%
 
     n_batches = math.ceil(HBF_ITERATIONS / BATCH_SIZE)
 
@@ -237,7 +235,88 @@ if RUN_HBF:
     )
 
     df_pass.to_csv(os.path.join(output_dir_hbf, "hbf_df_pass.csv"), index=True)
-# %%
 else:
     print("##### 5. Skipping Hierarchical Brute-Force as per settings... #####")
+# %%
+#### 6. Scoring all selections #####
+print("##### 6. Scoring all selections... #####")
+# 1. load modelyears sel
+# 2. build df
+# 3. score df (skip_check = False)
+# 4. don't score if already scored (HBF pass selections)
+
+from cluster_weather_years.helper_functions import build_df_from_modelyears
+from cluster_weather_years.hierarchical_brute_force import score_df
+
+k_medoids_df = pd.read_csv(
+    os.path.join(output_dir_kmedoids, "kmedoids_year_selection.csv")
+)
+
+k_medoids_modelyears = list(
+    zip(
+        k_medoids_df["model"].astype(str),
+        k_medoids_df["Hydrological_year"].astype(int),
+    )
+)
+selection_sources = {
+    "random_draws": baseline_random_draws_df,
+    #   "k_medoids": k_medoids_modelyears,
+    "simulated_annealing": pd.read_csv(
+        os.path.join(output_dir_sa, "sa_year_selections.csv")
+    ),
+}
+
+# test_sel = selection_sources["random_draws"].iloc[0].item()
+# df_sub = build_df_from_modelyears(df_ref, test_sel, YEAR_COL)
+# scores = score_df(
+#     df_ref, df_sub, test_sel, None, None, None, vars_non_nan, skip_check=False
+# )
+
+all_rows = []
+for source_name, df_sel in selection_sources.items():
+    print(f"Scoring selections from {source_name}...")
+    # if source_name == "k_medoids":
+    #     sel_modelyears = df_sel
+    # else:
+    for _, row in df_sel.iterrows():
+        sel_modelyears = row["model_years"]
+        if type(sel_modelyears) is str:
+            sel_modelyears = eval(sel_modelyears)  # convert string back to list
+        df_sub = build_df_from_modelyears(df_ref, sel_modelyears, YEAR_COL)
+        scores = score_df(
+            df_ref,
+            df_sub,
+            sel_modelyears,
+            None,
+            None,
+            None,
+            vars_non_nan,
+            skip_check=False,
+        )[1]
+        score_row = {"selection_source": source_name, "model_years": sel_modelyears}
+        score_row.update(scores)
+        all_rows.append(score_row)
+
+# K-medoids
+df_k_med = build_df_from_modelyears(df_ref, k_medoids_modelyears, YEAR_COL)
+kmedoid_scores = score_df(
+    df_ref,
+    df_k_med,
+    k_medoids_modelyears,
+    None,
+    None,
+    None,
+    vars_non_nan,
+    skip_check=False,
+)[1]
+score_row = {"selection_source": "k_medoids", "model_years": k_medoids_modelyears}
+score_row.update(kmedoid_scores)
+all_rows.append(score_row)
+
+# HBF pass selections (pre-calculated)
+all_rows.append(results_pass)
+
+df_all_scores = pd.DataFrame(all_rows)
+
+
 # %%

@@ -120,7 +120,7 @@ def score_df(
                 "fail_var": var,
                 "d_mean": float(d_mean),
                 "threshold_mean": float(thresholds_mean[var]),
-                "modelyears": modelyears_sub,
+                "model_years": modelyears_sub,
             }
 
         energy_score = float(energy_distance(sub_arr, ref[var]))
@@ -135,7 +135,7 @@ def score_df(
                 "threshold_mean": float(thresholds_mean[var]),
                 "energy_score": float(energy_score),
                 "threshold_energy": float(thresholds_energy[var]),
-                "modelyears": modelyears_sub,
+                "model_years": modelyears_sub,
             }
 
         # ---- expensive scores (only if cheap passed) ----
@@ -166,7 +166,7 @@ def score_df(
     return True, {
         "ds_name": df_name,
         "passed": True,
-        "modelyears": modelyears_sub,
+        "model_years": modelyears_sub,
         "d_mean": d_means,
         "energy_distance_score": energy_scores,
         "qq_mae": qq_mae,

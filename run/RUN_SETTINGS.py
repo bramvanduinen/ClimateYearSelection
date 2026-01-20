@@ -6,13 +6,14 @@ from cluster_weather_years.sa import wasserstein_seasonal_score
 
 ### INPUT/OUTPUT SETTINGS ###
 RUNNAME = "testrun_all_countries"
-RUN_SA = False  # whether to run simulated annealing
+RUN_SA = True  # whether to run simulated annealing
 RUN_HBF = True  # whether to run hierarchical brute-force
 
 ### SELECTION SETTINGS ###
 # fmt: off
 # list of countries to consider for matching, can be all countries or a subset
-MATCH_COUNTRIES = ["NL", "BE", "FR", "DK", "DE", "UK"] # for quick testing
+MATCH_COUNTRIES = ["NL", "BE"]  # for quick testing
+# MATCH_COUNTRIES = ["NL", "BE", "FR", "DK", "DE", "UK"] # for semi-quick testing
 # MATCH_COUNTRIES = [
 #     "AL", "AT", "BE", "BA", "BG", "HR", "CZ", "DK", "EE",
 #     "EL", "FI", "FR", "DE", "HU", "IE", "IT", "LV", "LT",
@@ -33,14 +34,14 @@ PARAM_GRID = {
     "temp_start": [2.0],
     # "cooling_rate": [0.99, 0.995, 0.9975],
     "cooling_rate": [
-        0.97,
+        0.9,
     ],  # for quick testing
     "max_iter": [5_000],
 }
 SEEDS = range(3)
 
 ### Hierarchical Brute-Force (HBF) Settings ###
-P_THRES = 60  # percentile threshold for univariates
+P_THRES = 50  # percentile threshold for univariates
 TUNING_ITERATIONS = int(1e2)
 HBF_ITERATIONS = int(1e4)
 BATCH_SIZE = 100

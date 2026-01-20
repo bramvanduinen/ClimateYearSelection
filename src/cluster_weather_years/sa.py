@@ -40,7 +40,7 @@ def simulated_annealing_selection(
     (best_combos, best_score, best_ref_score, log_df)
     - best_combos : list[(model, year)]
     - best_score  : float (optimised score)
-    - best_ref_score : float (reference score for best selection)
+    - best_ref_score : float (reference score for selection)
     - log_df      : pandas.DataFrame with columns ["iter", "temp", "score_opt", "score_ref"]
     """
     rng = np.random.default_rng(random_state)
@@ -266,7 +266,7 @@ def run_sa(inputs, metric, t0=2.0, cr=0.98, mi=5_000, seed=42):
     )
 
     sel_dict = {
-        "selected": selected,
+        "model_years": selected,
         "optimized_metric": metric.__name__,
         "ref_metric": alternative_metric.__name__,
         "best_score": best_score,
