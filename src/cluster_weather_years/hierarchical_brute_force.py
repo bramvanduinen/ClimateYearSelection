@@ -47,6 +47,48 @@ def reference_statistics(df_daily, columns):
     return ref, ref_mean, ref_quantiles
 
 
+# NOTE: OPTIONAL, CURRENTLY NOT USED AND NOT EXTENSIVELY TESTED
+def calibrate_percentile_threshold(
+    d_means,
+    e_scores,
+    columns,
+    target_rate,
+    max_iter=30,
+    tol=0.20,
+):
+    """
+    Find a percentile p such that the joint pass-rate (all vars pass mean+energy)
+    is ~ target_rate. Returns (p, thresholds_mean, thresholds_energy, est_rate).
+
+    tol is relative tolerance on target_rate.
+    """
+    lo, hi = 0.0, 100.0
+    best = None
+
+    for _ in range(max_iter):
+        p = 0.5 * (lo + hi)
+
+        th_mean = {v: np.percentile(d_means[v], p) for v in columns}
+        th_energy = {v: np.percentile(e_scores[v], p) for v in columns}
+
+        passes = np.ones_like(d_means[columns[0]], dtype=bool)
+        for v in columns:
+            passes &= (d_means[v] <= th_mean[v]) & (e_scores[v] <= th_energy[v])
+
+        est_rate = float(passes.mean())
+        best = (p, th_mean, th_energy, est_rate)
+
+        if est_rate > target_rate:
+            hi = p
+        else:
+            lo = p
+
+        if target_rate > 0 and abs(est_rate - target_rate) / target_rate <= tol:
+            break
+
+    return best
+
+
 def score_tuning(
     df_ref,
     model_years,
@@ -82,7 +124,8 @@ def score_tuning(
         var: np.percentile(energy_distance_score[var], percentile_threshold)
         for var in columns
     }
-    return thresholds_mean, thresholds_energy
+    # NOTE: TEMP return d_means and energy_distance score, for testing
+    return d_means, energy_distance_score, thresholds_mean, thresholds_energy
 
 
 def score_df(
@@ -93,6 +136,7 @@ def score_df(
     thresholds_mean,
     thresholds_energy,
     columns,
+    n_projections=200,
     skip_check=True,
 ):
     """
@@ -151,7 +195,7 @@ def score_df(
     wasserstein = sliced_wasserstein_distance(
         df_sub[columns].to_numpy(),
         df_ref[columns].to_numpy(),
-        n_projections=50,
+        n_projections=n_projections,
     )
 
     # wasserstein_seasonal
@@ -161,6 +205,7 @@ def score_df(
         columns,
         model_col="model",
         year_col="Hydrological_year",
+        n_projections=n_projections,
     )
 
     return True, {

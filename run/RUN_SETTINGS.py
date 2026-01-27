@@ -5,15 +5,15 @@ from cluster_weather_years.constants import BASE_INPUT
 from cluster_weather_years.sa import wasserstein_seasonal_score
 
 ### INPUT/OUTPUT SETTINGS ###
-RUNNAME = "testrun_all_countries"
-RUN_SA = True  # whether to run simulated annealing
-RUN_HBF = True  # whether to run hierarchical brute-force
+RUNNAME = "run_NW_Europe_30y_test"
+RUN_SA = False  # whether to run simulated annealing
+RUN_HBF = False  # whether to run hierarchical brute-force
 
 ### SELECTION SETTINGS ###
 # fmt: off
 # list of countries to consider for matching, can be all countries or a subset
-MATCH_COUNTRIES = ["NL", "BE"]  # for quick testing
-# MATCH_COUNTRIES = ["NL", "BE", "FR", "DK", "DE", "UK"] # for semi-quick testing
+#MATCH_COUNTRIES = ["NL"]  # for quick testing
+MATCH_COUNTRIES = ["NL", "BE", "FR", "DK", "DE", "UK"] # for semi-quick testing
 # MATCH_COUNTRIES = [
 #     "AL", "AT", "BE", "BA", "BG", "HR", "CZ", "DK", "EE",
 #     "EL", "FI", "FR", "DE", "HU", "IE", "IT", "LV", "LT",
@@ -22,10 +22,11 @@ MATCH_COUNTRIES = ["NL", "BE"]  # for quick testing
 # ] # full list of ENTSO-E countries (note: EL is Greece in Eurostat)
 # fmt: on
 
-NUM_TO_SELECT = 5  # number of years to select
+NUM_TO_SELECT = 30  # number of years to select
 YEAR_COL = "Hydrological_year"  # Default year column to operate on: "Hydrological_year" or "Calendar_year"
 
 ### SA SETTINGS ###
+
 # parameter grid for different SA runs
 PARAM_GRID = {
     "metric": [
@@ -36,15 +37,15 @@ PARAM_GRID = {
     "cooling_rate": [
         0.9,
     ],  # for quick testing
-    "max_iter": [5_000],
+    "max_iter": [5000],
 }
 SEEDS = range(3)
 
 ### Hierarchical Brute-Force (HBF) Settings ###
-P_THRES = 50  # percentile threshold for univariates
-TUNING_ITERATIONS = int(1e2)
-HBF_ITERATIONS = int(1e4)
-BATCH_SIZE = 100
+P_THRES = 50  # percentile threshold for univariates (25 for one country, 50 for a few countries, 75 for many countries)
+TUNING_ITERATIONS = int(1e3)
+HBF_ITERATIONS = int(1e6)
+BATCH_SIZE = 1000
 
 ### DATA SETTINGS ###
 

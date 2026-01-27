@@ -3,6 +3,7 @@
 import math
 import os
 import shutil
+from ast import literal_eval
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from datetime import datetime
 from itertools import product
@@ -15,6 +16,7 @@ from RUN_SETTINGS import (
     BATCH_SIZE,
     DF_PROD_DEMAND_FNAME,
     HBF_ITERATIONS,
+    MATCH_COUNTRIES,
     NUM_TO_SELECT,
     P_THRES,
     PARAM_GRID,
@@ -30,18 +32,29 @@ from tqdm import tqdm
 
 # pylint: enable=import-error
 from cluster_weather_years.constants import BASE_OUTPUT, HYDROLOGICAL_YEARS, MODELS
-from cluster_weather_years.helper_functions import draw_random_modelyears
+from cluster_weather_years.evaluation import (
+    plot_lollipop_by_country,
+    plot_results_with_pareto,
+)
+from cluster_weather_years.helper_functions import (
+    build_df_from_modelyears,
+    draw_random_modelyears,
+)
 from cluster_weather_years.hierarchical_brute_force import (
     #    build_random_df,
     init_worker,
     run_batch,
-    #    score_df,
+    score_df,
     score_tuning,
 )
 from cluster_weather_years.k_medoids import k_medoids_clustering
 from cluster_weather_years.sa import run_sa
 
 # %%
+
+start_time = datetime.now()
+print(f"Run started at {start_time.strftime('%Y-%m-%d %H:%M:%S')}")
+
 #### 0. Load data #####
 print("##### 0. Loading data... #####")
 
@@ -60,20 +73,21 @@ rng = np.random.default_rng(SEEDS[0])
 #### 1. Create output directories #####
 print("##### 1. Creating output directories... #####")
 
-# HACK: simplified output dir creation for testing
-# rundate = datetime.now().strftime("%Y%m%d_%H%M")
-# output_dir_run = os.path.join(BASE_OUTPUT, f"{RUNNAME}_{rundate}")
-output_dir_run = os.path.join(BASE_OUTPUT, f"{RUNNAME}")
+rundate = datetime.now().strftime("%Y%m%d_%H%M")
+output_dir_run = os.path.join(BASE_OUTPUT, f"{RUNNAME}_{rundate}")
+# output_dir_run = os.path.join(BASE_OUTPUT, f"{RUNNAME}")
 
 output_dir_random = os.path.join(output_dir_run, "random_draws")
 output_dir_kmedoids = os.path.join(output_dir_run, "k_medoids")
 output_dir_sa = os.path.join(output_dir_run, "simulated_annealing")
 output_dir_hbf = os.path.join(output_dir_run, "hierarchical_brute_force")
+output_dir_eval = os.path.join(output_dir_run, "evaluation")
 
 os.makedirs(output_dir_random, exist_ok=True)
 os.makedirs(output_dir_kmedoids, exist_ok=True)
 os.makedirs(output_dir_sa, exist_ok=True)
 os.makedirs(output_dir_hbf, exist_ok=True)
+os.makedirs(output_dir_eval, exist_ok=True)
 
 # Copy RUN_SETTINGS.py to output dir for record keeping
 shutil.copy("RUN_SETTINGS.py", os.path.join(output_dir_run, "RUN_SETTINGS_of_run.py"))
@@ -104,6 +118,7 @@ k_medoids_clustering(df_ref, NUM_TO_SELECT, vars_non_nan, output_dir_kmedoids)
 
 # %%
 #### 4. Simulated Annealing #####
+
 if RUN_SA:
     print("##### 4. Performing Simulated Annealing... #####")
     # TODO: Make everything work with consistent indexing of df
@@ -129,9 +144,9 @@ if RUN_SA:
     ]
 
     # run jobs in parallel
+    results = []
     n_workers = min(os.cpu_count() or 1, len(param_set))
 
-    results = []
     with ProcessPoolExecutor(max_workers=n_workers) as ex:
         futures = [
             ex.submit(run_sa, inputs=constant_inputs, **job) for job in param_set
@@ -152,6 +167,7 @@ if RUN_SA:
     )
 else:
     df_ref = df_ref.reset_index()
+    n_workers = os.cpu_count()
     print("##### 4. Skipping Simulated Annealing as per settings... #####")
 
 # %%
@@ -161,7 +177,7 @@ if RUN_HBF:
     print("##### 5. Performing Hierarchical Subset Brute-Force Search... #####")
 
     # TODO: make sure it's reproducible, e.g., by setting seeds properly
-    thresholds_mean, thresholds_energy = score_tuning(
+    d_means, energy_scores, thresholds_mean, thresholds_energy = score_tuning(
         df_ref,
         model_years,
         TUNING_ITERATIONS,
@@ -222,6 +238,7 @@ if RUN_HBF:
             modelyears_pass.extend(pass_years)
 
     df_pass = pd.DataFrame(results_pass).sort_values("wasserstein")
+    df_pass["selection_source"] = "HBF"
     df_fail = pd.DataFrame(results_fail)[["fail_check", "fail_var"]]
 
     skip_rate = len(df_fail) / HBF_ITERATIONS
@@ -240,13 +257,6 @@ else:
 # %%
 #### 6. Scoring all selections #####
 print("##### 6. Scoring all selections... #####")
-# 1. load modelyears sel
-# 2. build df
-# 3. score df (skip_check = False)
-# 4. don't score if already scored (HBF pass selections)
-
-from cluster_weather_years.helper_functions import build_df_from_modelyears
-from cluster_weather_years.hierarchical_brute_force import score_df
 
 k_medoids_df = pd.read_csv(
     os.path.join(output_dir_kmedoids, "kmedoids_year_selection.csv")
@@ -266,12 +276,6 @@ selection_sources = {
     ),
 }
 
-# test_sel = selection_sources["random_draws"].iloc[0].item()
-# df_sub = build_df_from_modelyears(df_ref, test_sel, YEAR_COL)
-# scores = score_df(
-#     df_ref, df_sub, test_sel, None, None, None, vars_non_nan, skip_check=False
-# )
-
 all_rows = []
 for source_name, df_sel in selection_sources.items():
     print(f"Scoring selections from {source_name}...")
@@ -281,7 +285,7 @@ for source_name, df_sel in selection_sources.items():
     for _, row in df_sel.iterrows():
         sel_modelyears = row["model_years"]
         if type(sel_modelyears) is str:
-            sel_modelyears = eval(sel_modelyears)  # convert string back to list
+            sel_modelyears = literal_eval(sel_modelyears)  # convert string back to list
         df_sub = build_df_from_modelyears(df_ref, sel_modelyears, YEAR_COL)
         scores = score_df(
             df_ref,
@@ -313,10 +317,130 @@ score_row = {"selection_source": "k_medoids", "model_years": k_medoids_modelyear
 score_row.update(kmedoid_scores)
 all_rows.append(score_row)
 
-# HBF pass selections (pre-calculated)
-all_rows.append(results_pass)
+if RUN_HBF:
+    # concat HBF pass selections (pre-calculated)
+    df_all_results = pd.concat([pd.DataFrame(all_rows), df_pass], ignore_index=True)
+else:
+    df_all_results = pd.DataFrame(all_rows)
 
-df_all_scores = pd.DataFrame(all_rows)
+df_all_results.to_csv(
+    os.path.join(output_dir_run, "all_year_selections_scored.csv"), index=True
+)
+pd.Series(vars_non_nan).to_csv(
+    os.path.join(output_dir_run, "variable_order.csv"), index=False
+)
 
+print("All selections scored and saved.")
+# %%
+#### 7. Calculating country-level scores ####
+print("##### 7. Calculating country-level scores... #####")
+
+
+def process_row(row):
+    """Score a single row (selection) on a country-level. Function processed in parallel."""
+    sel_modelyears = row["model_years"]
+    if type(sel_modelyears) is str:
+        sel_modelyears = literal_eval(sel_modelyears)  # convert string back to list
+    df_sub = build_df_from_modelyears(df_ref, sel_modelyears, YEAR_COL)
+
+    row_scores_per_country = []
+    for country in MATCH_COUNTRIES:
+        country_vars = [
+            f"{country}_OFF_prod",
+            f"{country}_ON_prod",
+            f"{country}_SOLAR_prod",
+            f"{country}_Demand",
+            f"{country}_Residual_load",
+        ]
+
+        scores = score_df(
+            df_ref,
+            df_sub,
+            sel_modelyears,
+            None,
+            None,
+            None,
+            country_vars,
+            n_projections=50,  # reduce computation time
+            skip_check=False,
+        )[1]
+
+        score_row = {
+            "selection_source": row["selection_source"],
+            "model_years": sel_modelyears,
+            "country": country,
+        }
+        score_row.update(scores)
+        row_scores_per_country.append(score_row)
+    return row_scores_per_country
+
+
+row_dicts = df_all_results[["selection_source", "model_years"]].to_dict("records")
+
+with ProcessPoolExecutor(max_workers=n_workers) as ex:
+    nested_rows = list(tqdm(ex.map(process_row, row_dicts), total=len(row_dicts)))
+
+country_rows = []
+# unpack nested list
+for sub in nested_rows:
+    country_rows.extend(sub)
+
+df_country_scores = pd.DataFrame(country_rows)
+df_country_scores.to_csv(
+    os.path.join(output_dir_run, "all_year_selections_country_scores.csv"), index=True
+)
+# %%
+#### 8.Plotting automatic evaluation #####
+print("##### 8. Performing automatic evaluation... #####")
+
+list_cols = ["d_mean", "qq_mae", "energy_distance_score", "qq_mae_high", "qq_mae_low"]
+
+for col in list_cols:
+    col_max = "max_" + col
+    df_all_results[col_max] = df_all_results[col].apply(
+        lambda x: max(literal_eval(x)) if isinstance(x, str) else max(x)
+    )
+
+plot_results_with_pareto(
+    df_all_results,
+    metric_1="wasserstein_seasonal",
+    metric_2="wasserstein",
+    save_dir=output_dir_eval,
+)
+
+plot_results_with_pareto(
+    df_all_results,
+    metric_1="max_qq_mae",
+    metric_2="max_energy_distance_score",
+    save_dir=output_dir_eval,
+)
+
+plot_results_with_pareto(
+    df_all_results,
+    metric_1="max_qq_mae_high",
+    metric_2="max_qq_mae_low",
+    save_dir=output_dir_eval,
+)
+
+plot_lollipop_by_country(
+    df_all_results,
+    df_country_scores,
+    MATCH_COUNTRIES,
+    "wasserstein",
+    "SWD",
+    save_dir=output_dir_eval,
+)
+
+plot_lollipop_by_country(
+    df_all_results,
+    df_country_scores,
+    MATCH_COUNTRIES,
+    "wasserstein_seasonal",
+    "Worst seasonal SWD",
+    save_dir=output_dir_eval,
+)
 
 # %%
+end_time = datetime.now()
+print(f"Run completed at {end_time.strftime('%Y-%m-%d %H:%M:%S')}")
+print(f"Total run time: {end_time - start_time}")

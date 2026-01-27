@@ -20,7 +20,6 @@ def simulated_annealing_selection(
     variables: Sequence[str],
     n_select: int,
     scoring_fn: Callable[..., float],
-    ref_scoring_fn: Callable[..., float],
     model_col: str = "model",
     year_col: str = "year",
     temp_start: float = 1.0,
@@ -30,18 +29,16 @@ def simulated_annealing_selection(
     random_state: Optional[int] = None,
     sel_type="full",  # full to sample from full df, or 'subset' to choose mini-subset from larger subset.
     subset=None,  # only specified if sel_type = "subset"
-) -> Tuple[list[Tuple[str, int]], float, float, pd.DataFrame]:
+) -> Tuple[list[Tuple[str, int]], float, pd.DataFrame]:
     """
-    Simulated annealing that optimises `scoring_fn` and logs the reference score
-    from `ref_scoring_fn` at each step.
+    Simulated annealing that optimises `scoring_fn`.
 
     Returns
     -------
-    (best_combos, best_score, best_ref_score, log_df)
+    (best_combos, best_score, log_df)
     - best_combos : list[(model, year)]
     - best_score  : float (optimised score)
-    - best_ref_score : float (reference score for selection)
-    - log_df      : pandas.DataFrame with columns ["iter", "temp", "score_opt", "score_ref"]
+    - log_df      : pandas.DataFrame with columns ["iter", "temp", "score_opt"]
     """
     rng = np.random.default_rng(random_state)
 
@@ -79,19 +76,8 @@ def simulated_annealing_selection(
         year_col=year_col,
     )
 
-    # reference score, not optimized on!
-    ref_score = best_ref_score = ref_scoring_fn(
-        df=df,
-        combos=current,
-        variables=variables,
-        model_col=model_col,
-        year_col=year_col,
-    )
-
     temp = temp_start
-    log: list[dict] = [
-        {"iter": 0, "temp": temp, "score_opt": current_score, "score_ref": ref_score}
-    ]
+    log: list[dict] = [{"iter": 0, "temp": temp, "score_opt": current_score}]
 
     n_it = np.log(temp_end / temp_start) / np.log(cooling_rate)
 
@@ -137,26 +123,36 @@ def simulated_annealing_selection(
             year_col=year_col,
         )
 
-        ref_score = ref_scoring_fn(
-            df=df,
-            combos=current,
-            variables=variables,
-            model_col=model_col,
-            year_col=year_col,
-        )
-
         # --- Metropolis accept/reject with tracking ---
+        random_check = rng.random()
+        # first based on low-precision scores
+        delta_init = neighbour_score - current_score
+        close = (neighbour_score / current_score < 1.1) or (
+            random_check < np.exp(-delta_init / temp)
+        )
+        if close and (
+            scoring_fn == wasserstein_seasonal_score or scoring_fn == wasserstein_score
+        ):
+            # re-calculate score with higher precision
+            neighbour_score = scoring_fn(
+                df=df,
+                combos=neighbour,
+                variables=variables,
+                model_col=model_col,
+                year_col=year_col,
+                n_projections=200,
+            )
+
         delta = neighbour_score - current_score
-        accept = (delta < 0) or (rng.random() < np.exp(-delta / temp))
+        accept = (delta < 0) or (random_check < np.exp(-delta / temp))
         if accept:
             # update scores
             current, current_score = neighbour, neighbour_score
             accepted += 1
             if current_score < best_score:
-                best, best_score, best_ref_score = (
+                best, best_score = (
                     current.copy(),
                     current_score,
-                    ref_score,
                 )
                 steps_since_best = 0
         else:
@@ -168,11 +164,9 @@ def simulated_annealing_selection(
             {
                 "iter": it,
                 "temp": temp,
-                # "score_opt": current_score,
                 "score_accepted": current_score,
                 "score_best": best_score,
                 "score_tried": neighbour_score,
-                "score_ref": ref_score,  # CAN PROBABLY BE REMOVED, NOT THAT USEFUL ANYMORE
                 "acc_rate": acc_rate,
             }
         )
@@ -186,13 +180,13 @@ def simulated_annealing_selection(
         # cooling step
         temp *= cooling_rate
 
-    return sorted(best), float(best_score), float(best_ref_score), pd.DataFrame(log)
+    return sorted(best), float(best_score), pd.DataFrame(log)
 
 
 # %% Functions to run and log the SA algorithm in parallel mode
 
 
-def plot_sa_log(log_df, metric, alternative_metric, t0, cr, mi, seed, output_dir_sa):
+def plot_sa_log(log_df, metric, t0, cr, mi, seed, output_dir_sa):
     """Plot evolution of scores after the run"""
     fig, (ax1, ax3) = plt.subplots(
         2, 1, figsize=(8, 6), sharex=True, gridspec_kw={"height_ratios": [2, 1]}
@@ -202,7 +196,6 @@ def plot_sa_log(log_df, metric, alternative_metric, t0, cr, mi, seed, output_dir
     ax4 = ax3.twinx()
 
     metric_label = metric.__name__
-    label_ref = alternative_metric.__name__
 
     # --- Top panel: scores ---
     ax1.plot(log_df["iter"], log_df["score_tried"], label="Tried", color="C0")
@@ -244,18 +237,10 @@ def run_sa(inputs, metric, t0=2.0, cr=0.98, mi=5_000, seed=42):
     output_dir_sa = inputs["output_dir_sa"]
     YEAR_COL = inputs["YEAR_COL"]
 
-    alt_metric = {
-        ad_total: wasserstein_score,
-        wasserstein_score: wasserstein_seasonal_score,
-        wasserstein_seasonal_score: wasserstein_score,
-    }
-    alternative_metric = alt_metric.get(metric, ad_total)
-
-    selected, best_score, best_ref_score, log_df = simulated_annealing_selection(
+    selected, best_score, log_df = simulated_annealing_selection(
         df=df_daily,
         variables=vars_to_match,
         scoring_fn=metric,
-        ref_scoring_fn=alternative_metric,
         n_select=NUM_CLUSTERS,
         model_col="model",
         year_col=YEAR_COL,
@@ -268,9 +253,7 @@ def run_sa(inputs, metric, t0=2.0, cr=0.98, mi=5_000, seed=42):
     sel_dict = {
         "model_years": selected,
         "optimized_metric": metric.__name__,
-        "ref_metric": alternative_metric.__name__,
         "best_score": best_score,
-        "best_ref_score": best_ref_score,
         "seed": seed,
         "t0": t0,
         "cr": cr,
@@ -278,13 +261,6 @@ def run_sa(inputs, metric, t0=2.0, cr=0.98, mi=5_000, seed=42):
     }
 
     # plot logs of SA run and save the plot
-    plot_sa_log(log_df, metric, alternative_metric, t0, cr, mi, seed, output_dir_sa)
+    plot_sa_log(log_df, metric, t0, cr, mi, seed, output_dir_sa)
 
     return sel_dict
-
-
-# TODO: delete?
-# def _sa_job(job):
-#     """Run a single SA job: (seed, metric, t0, cr, mi, constant_inputs) -> sel_dict."""
-#     seed, metric, t0, cr, mi, constant_inputs = job
-#     return run_sa(constant_inputs, metric, t0, cr, mi, seed)

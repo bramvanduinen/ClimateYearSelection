@@ -29,6 +29,7 @@ def wasserstein_score(
     variables: Sequence[str],
     model_col: str = "model",
     year_col: str = "year",
+    n_projections: int = 50,
 ) -> float:
     """Wasserstein score: Wasserstein distance between full sample and selected years."""
     idx_sel = build_selection_mask(df, combos, model_col=model_col, year_col=year_col)
@@ -41,7 +42,7 @@ def wasserstein_score(
     full_data[np.isnan(full_data)] = 0
 
     # 50 projections is compromise between accuracy and speed. Better would be: 200
-    return sliced_wasserstein_distance(sub_data, full_data, n_projections=50)
+    return sliced_wasserstein_distance(sub_data, full_data, n_projections=n_projections)
 
 
 def wasserstein_seasonal_score(
@@ -50,6 +51,7 @@ def wasserstein_seasonal_score(
     variables: Sequence[str],
     model_col: str = "model",
     year_col: str = "year",
+    n_projections: int = 50,
 ) -> float:
     """Wasserstein score: Wasserstein distance between full sample and selected years."""
 
@@ -70,7 +72,9 @@ def wasserstein_seasonal_score(
 
         # 50 projections is compromise between accuracy and speed. Better would be: 200
         wasserstein_seasonal.append(
-            sliced_wasserstein_distance(sub_data, full_data, n_projections=50)
+            sliced_wasserstein_distance(
+                sub_data, full_data, n_projections=n_projections
+            )
         )
     # base score on worst-performing season
     return max(wasserstein_seasonal)
