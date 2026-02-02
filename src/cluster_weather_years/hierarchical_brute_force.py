@@ -192,9 +192,10 @@ def score_df(
         qq_mae_high.append(float(qq_diff[:10].mean()))
         qq_mae_low.append(float(qq_diff[-10:].mean()))
 
+    vars_non_nan = [var for var in columns if not df_ref[var].isna().all()]
     wasserstein = sliced_wasserstein_distance(
-        df_sub[columns].to_numpy(),
-        df_ref[columns].to_numpy(),
+        df_sub[vars_non_nan].to_numpy(),
+        df_ref[vars_non_nan].to_numpy(),
         n_projections=n_projections,
     )
 
@@ -202,7 +203,7 @@ def score_df(
     wasserstein_seasonal = wasserstein_seasonal_score(
         df_ref,
         modelyears_sub,
-        columns,
+        vars_non_nan,
         model_col="model",
         year_col="Hydrological_year",
         n_projections=n_projections,

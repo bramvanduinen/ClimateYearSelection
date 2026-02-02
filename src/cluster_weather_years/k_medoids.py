@@ -33,19 +33,17 @@ def k_medoids_clustering(
     """
 
     # Standardize the data
-    df_raw = df[[year_col] + vars_to_match].copy()
+    df_raw = df[["model", year_col] + vars_to_match].copy()
     scaler = StandardScaler()
     df_standardized = pd.DataFrame(
         scaler.fit_transform(df_raw[vars_to_match]),
         columns=vars_to_match,
         index=df_raw.index,
     )
-    df_standardized[year_col] = df_raw[year_col]
+    df_standardized[["model", year_col]] = df_raw[["model", year_col]]
 
     # Compute yearly statistics of vars_to_match (mean and variance)
-    yearly_stats = df_standardized.groupby([pd.Grouper(level="model"), year_col]).agg(
-        ["mean", "var"]
-    )
+    yearly_stats = df_standardized.groupby(["model", year_col]).agg(["mean", "var"])
     yearly_stats.columns = [f"{var}_{stat}" for var, stat in yearly_stats.columns]
     yearly_stats = yearly_stats.reset_index()
 

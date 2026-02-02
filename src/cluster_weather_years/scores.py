@@ -34,12 +34,13 @@ def wasserstein_score(
     """Wasserstein score: Wasserstein distance between full sample and selected years."""
     idx_sel = build_selection_mask(df, combos, model_col=model_col, year_col=year_col)
 
-    sub_data = df.loc[idx_sel, variables].to_numpy()
-    full_data = df[variables].to_numpy()
+    vars_non_nan = [var for var in variables if not df[var].isna().all()]
+    sub_data = df.loc[idx_sel, vars_non_nan].to_numpy()
+    full_data = df[vars_non_nan].to_numpy()
 
     # Replace NaNs with zeros to avoid issues in distance calculation
-    sub_data[np.isnan(sub_data)] = 0
-    full_data[np.isnan(full_data)] = 0
+    # sub_data[np.isnan(sub_data)] = 0
+    # full_data[np.isnan(full_data)] = 0
 
     # 50 projections is compromise between accuracy and speed. Better would be: 200
     return sliced_wasserstein_distance(sub_data, full_data, n_projections=n_projections)
@@ -56,19 +57,20 @@ def wasserstein_seasonal_score(
     """Wasserstein score: Wasserstein distance between full sample and selected years."""
 
     idx_sel = build_selection_mask(df, combos, model_col=model_col, year_col=year_col)
+    vars_non_nan = [var for var in variables if not df[var].isna().all()]
 
     wasserstein_seasonal = []
     for season, months in SEASONS.items():
         in_season = df["Date"].dt.month.isin(months).values
         # combine random draw boolean & seasonal boolean for subset
         sub_mask = idx_sel & in_season
-        sub_data = df.loc[sub_mask, variables].to_numpy()
+        sub_data = df.loc[sub_mask, vars_non_nan].to_numpy()
         # only use seasonal boolean for full set
-        full_data = df.loc[in_season, variables].to_numpy()
+        full_data = df.loc[in_season, vars_non_nan].to_numpy()
 
         # Replace NaNs with zeros to avoid issues in distance calculation
-        sub_data[np.isnan(sub_data)] = 0
-        full_data[np.isnan(full_data)] = 0
+        # sub_data[np.isnan(sub_data)] = 0
+        # full_data[np.isnan(full_data)] = 0
 
         # 50 projections is compromise between accuracy and speed. Better would be: 200
         wasserstein_seasonal.append(

@@ -1,4 +1,5 @@
 import os
+from ast import literal_eval
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -86,18 +87,19 @@ def plot_lollipop_by_country(
     fig, ax = plt.subplots(figsize=(4, 6))
 
     for i, country in enumerate(countries):
-        df_country = df_country_results.query("country == @country")
+        # df_country = df_country_results.query("country == @country")
+        # df_country["model_years"] = df_country["model_years"].apply(lambda x: str(x))
+        df_country = df_country_results.query("country == @country").copy()
+        df_country["model_years"] = df_country["model_years"].astype(str)
         wass_country_best = df_best.merge(
-            df_country[["model_years", "wasserstein"]], on="model_years"
-        )["wasserstein_y"].to_numpy()
+            df_country[["model_years", metric]], on="model_years"
+        )[f"{metric}_y"].to_numpy()
 
-        rnd = df_country.query("selection_source == 'random_draws'")[
-            "wasserstein"
-        ].mean()
+        rnd = df_country.query("selection_source == 'random_draws'")[f"{metric}"].mean()
 
-        k_med = df_country.query("selection_source == 'k_medoids'")[
-            "wasserstein"
-        ].values[0]
+        k_med = df_country.query("selection_source == 'k_medoids'")[f"{metric}"].values[
+            0
+        ]
 
         x_min = np.minimum(wass_country_best.min(), rnd)
         x_max = np.maximum(wass_country_best.max(), rnd)
@@ -135,7 +137,6 @@ def plot_lollipop_by_country(
         plt.savefig(
             os.path.join(
                 save_dir,
-                "evaluation",
                 f"lollipop_{metric}_by_country.png",
             ),
             dpi=150,

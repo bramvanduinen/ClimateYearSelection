@@ -8,7 +8,7 @@ __pycache__/
 /run/shapefiles/*
 !/run/shapefiles/.gitkeep
 /outputs/
-/wind_for_Gertie/
+/side_quests/
 /src/cluster_weather_years/TESTVERSION_hierarchical_brute_force.py
 
 # Distribution / packaging

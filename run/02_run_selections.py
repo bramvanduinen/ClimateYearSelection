@@ -3,6 +3,7 @@
 import math
 import os
 import shutil
+import sys
 from ast import literal_eval
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from datetime import datetime
@@ -23,6 +24,7 @@ from RUN_SETTINGS import (
     RUN_HBF,
     RUN_SA,
     RUNNAME,
+    RUNNAME_SA_FALLBACK,
     SEEDS,
     TUNING_ITERATIONS,
     VARS_TO_MATCH,
@@ -51,31 +53,17 @@ from cluster_weather_years.k_medoids import k_medoids_clustering
 from cluster_weather_years.sa import run_sa
 
 # %%
-
-start_time = datetime.now()
-print(f"Run started at {start_time.strftime('%Y-%m-%d %H:%M:%S')}")
-
-#### 0. Load data #####
-print("##### 0. Loading data... #####")
-
-df_daily = pd.read_parquet(DF_PROD_DEMAND_FNAME)
-df_daily["Date"] = pd.to_datetime(df_daily["Date"])
-df_daily = df_daily.query("Hydrological_year in @HYDROLOGICAL_YEARS")
-df_daily = df_daily.set_index(["model", "Date"])
-
-vars_non_nan = [var for var in VARS_TO_MATCH if not df_daily[var].isna().all()]
-df_ref = df_daily[["Hydrological_year", "Calendar_year"] + VARS_TO_MATCH]
-
-model_years = list(product(MODELS, HYDROLOGICAL_YEARS))
-rng = np.random.default_rng(SEEDS[0])
-
-# %%
-#### 1. Create output directories #####
-print("##### 1. Creating output directories... #####")
+#### 0. Create output directories #####
+print("##### 0. Creating output directories... #####")
 
 rundate = datetime.now().strftime("%Y%m%d_%H%M")
 output_dir_run = os.path.join(BASE_OUTPUT, f"{RUNNAME}_{rundate}")
 # output_dir_run = os.path.join(BASE_OUTPUT, f"{RUNNAME}")
+
+os.makedirs(output_dir_run, exist_ok=True)
+
+# Redirect stdout to log file, first create the file
+sys.stdout = open(os.path.join(output_dir_run, "run_log.txt"), "w", encoding="utf-8")
 
 output_dir_random = os.path.join(output_dir_run, "random_draws")
 output_dir_kmedoids = os.path.join(output_dir_run, "k_medoids")
@@ -91,6 +79,26 @@ os.makedirs(output_dir_eval, exist_ok=True)
 
 # Copy RUN_SETTINGS.py to output dir for record keeping
 shutil.copy("RUN_SETTINGS.py", os.path.join(output_dir_run, "RUN_SETTINGS_of_run.py"))
+
+
+# %%
+start_time = datetime.now()
+print(f"Run started at {start_time.strftime('%Y-%m-%d %H:%M:%S')}")
+
+#### 1. Load data #####
+print("##### 1. Loading data... #####")
+
+df_daily = pd.read_parquet(DF_PROD_DEMAND_FNAME)
+df_daily["Date"] = pd.to_datetime(df_daily["Date"])
+df_daily = df_daily.query("Hydrological_year in @HYDROLOGICAL_YEARS")
+df_daily = df_daily.set_index(["model", "Date"])
+
+vars_non_nan = [var for var in VARS_TO_MATCH if not df_daily[var].isna().all()]
+df_ref = df_daily[["Hydrological_year", "Calendar_year"] + VARS_TO_MATCH].reset_index()
+
+model_years = list(product(MODELS, HYDROLOGICAL_YEARS))
+rng = np.random.default_rng(SEEDS[0])
+
 
 # %%
 #### 2. Baseline Random Draws #####
@@ -121,8 +129,6 @@ k_medoids_clustering(df_ref, NUM_TO_SELECT, vars_non_nan, output_dir_kmedoids)
 
 if RUN_SA:
     print("##### 4. Performing Simulated Annealing... #####")
-    # TODO: Make everything work with consistent indexing of df
-    df_ref = df_ref.reset_index()
 
     # build jobs
     constant_inputs = {
@@ -153,6 +159,9 @@ if RUN_SA:
         ]
         for i, fut in enumerate(as_completed(futures), start=1):
             sel_dict = fut.result()
+            # HACK: convert model_years to tuple for saving in DataFrame
+            # TODO: fix in run_sa
+            sel_dict["model_years"] = tuple(sel_dict["model_years"])
             results.append(sel_dict)
             print(
                 f"Experiment {i} done: {sel_dict['optimized_metric']} = {sel_dict['best_score']:.2f}"
@@ -162,13 +171,23 @@ if RUN_SA:
     df_results = pd.DataFrame(results)
     df_results.to_csv(os.path.join(output_dir_sa, "sa_year_selections.csv"))
     best = min(results, key=lambda d: d["best_score"])
-    print(
-        f"SA run done, best score: {best['best_score']:.2f}, best selection: {best['model_years']}"
-    )
+    print(f"SA run done, best score: {best['best_score']:.2f}")
 else:
-    df_ref = df_ref.reset_index()
-    n_workers = os.cpu_count()
     print("##### 4. Skipping Simulated Annealing as per settings... #####")
+
+    n_workers = os.cpu_count()
+    df_results = pd.read_csv(
+        os.path.join(
+            BASE_OUTPUT,
+            f"{RUNNAME_SA_FALLBACK}/simulated_annealing/sa_year_selections.csv",
+        ),
+        index_col=0,
+    )
+    print(
+        f"Simulated Annealing results copied from fallback run: {RUNNAME_SA_FALLBACK}"
+    )
+    df_results.to_csv(os.path.join(output_dir_sa, "sa_year_selections.csv"), index=True)
+
 
 # %%
 #### 5. Hierarchical Subset Brute-Force #####
@@ -262,7 +281,7 @@ k_medoids_df = pd.read_csv(
     os.path.join(output_dir_kmedoids, "kmedoids_year_selection.csv")
 )
 
-k_medoids_modelyears = list(
+k_medoids_modelyears = tuple(
     zip(
         k_medoids_df["model"].astype(str),
         k_medoids_df["Hydrological_year"].astype(int),
@@ -284,7 +303,7 @@ for source_name, df_sel in selection_sources.items():
     # else:
     for _, row in df_sel.iterrows():
         sel_modelyears = row["model_years"]
-        if type(sel_modelyears) is str:
+        if isinstance(sel_modelyears, str):
             sel_modelyears = literal_eval(sel_modelyears)  # convert string back to list
         df_sub = build_df_from_modelyears(df_ref, sel_modelyears, YEAR_COL)
         scores = score_df(
@@ -339,8 +358,8 @@ print("##### 7. Calculating country-level scores... #####")
 def process_row(row):
     """Score a single row (selection) on a country-level. Function processed in parallel."""
     sel_modelyears = row["model_years"]
-    if type(sel_modelyears) is str:
-        sel_modelyears = literal_eval(sel_modelyears)  # convert string back to list
+    if isinstance(sel_modelyears, str):
+        sel_modelyears = literal_eval(sel_modelyears)  # convert string back to tuple
     df_sub = build_df_from_modelyears(df_ref, sel_modelyears, YEAR_COL)
 
     row_scores_per_country = []
@@ -444,3 +463,5 @@ plot_lollipop_by_country(
 end_time = datetime.now()
 print(f"Run completed at {end_time.strftime('%Y-%m-%d %H:%M:%S')}")
 print(f"Total run time: {end_time - start_time}")
+
+# %%
