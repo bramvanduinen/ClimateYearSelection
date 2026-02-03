@@ -65,7 +65,6 @@ def k_medoids_clustering(
     )
 
     analyze_kmedoids(kmed, stats_scaled, medoid_idx, medoid_years, output_dir)
-    print(f"K-Medoids clustering completed. Results saved to {output_dir}.")
     return None
 
 

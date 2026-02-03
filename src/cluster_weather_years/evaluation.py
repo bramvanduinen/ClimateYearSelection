@@ -87,11 +87,16 @@ def plot_lollipop_by_country(
     fig, ax = plt.subplots(figsize=(4, 6))
 
     for i, country in enumerate(countries):
-        # df_country = df_country_results.query("country == @country")
-        # df_country["model_years"] = df_country["model_years"].apply(lambda x: str(x))
+        # HACK: Some messing around to ensure model_years are strings for merging
+        # TODO: implement proper handling of model_years as tuples everywhere
         df_country = df_country_results.query("country == @country").copy()
-        df_country["model_years"] = df_country["model_years"].astype(str)
-        wass_country_best = df_best.merge(
+        df_country["model_years"] = df_country["model_years"].apply(str)
+
+        # Also convert df_best model_years to string for consistent merging
+        df_best_str = df_best.copy()
+        df_best_str["model_years"] = df_best_str["model_years"].apply(str)
+
+        wass_country_best = df_best_str.merge(
             df_country[["model_years", metric]], on="model_years"
         )[f"{metric}_y"].to_numpy()
 
@@ -100,6 +105,11 @@ def plot_lollipop_by_country(
         k_med = df_country.query("selection_source == 'k_medoids'")[f"{metric}"].values[
             0
         ]
+
+        # Safety check: skip if no matching data
+        if len(wass_country_best) == 0:
+            print(f"Warning: No matching model_years found for country {country}")
+            continue
 
         x_min = np.minimum(wass_country_best.min(), rnd)
         x_max = np.maximum(wass_country_best.max(), rnd)
