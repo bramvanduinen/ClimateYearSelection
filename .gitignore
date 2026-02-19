@@ -1,16 +1,16 @@
 # Byte-compiled / optimized / DLL files
 __pycache__/
-/notebooks/test_scripts/
 /notebooks/
-/notebooks/wasserstein_illustration.ipynb
-/pecd_data/
+/run/illustrations/wasserstein_illustration.ipynb
+/run/illustrations/mean_prod_demand_per_country.ipynb
+/run/illustrations/wasserstein_joint_illustration.ipynb
 /weather_year_selection/
 /run/shapefiles/*
 !/run/shapefiles/.gitkeep
-/outputs/
 /side_quests/
 /src/cluster_weather_years/TESTVERSION_hierarchical_brute_force.py
-/run/04_evaluation_notebooks/temporary_notebooks/
+/run/04_evaluation_notebooks/
+
 
 # Distribution / packaging
 .Python

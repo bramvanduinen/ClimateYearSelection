@@ -34,7 +34,9 @@ def wasserstein_score(
     """Wasserstein score: Wasserstein distance between full sample and selected years."""
     idx_sel = build_selection_mask(df, combos, model_col=model_col, year_col=year_col)
 
-    vars_non_nan = [var for var in variables if not df[var].isna().all()]
+    # HACK: Hydro contains 0 instead of nans, so there have to be non-zero values.
+    vars_non_nan = [var for var in variables if np.max(df[var]) > 0]
+
     sub_data = df.loc[idx_sel, vars_non_nan].to_numpy()
     full_data = df[vars_non_nan].to_numpy()
 
@@ -57,7 +59,7 @@ def wasserstein_seasonal_score(
     """Wasserstein score: Wasserstein distance between full sample and selected years."""
 
     idx_sel = build_selection_mask(df, combos, model_col=model_col, year_col=year_col)
-    vars_non_nan = [var for var in variables if not df[var].isna().all()]
+    vars_non_nan = [var for var in variables if np.max(df[var]) > 0]
 
     wasserstein_seasonal = []
     for season, months in SEASONS.items():

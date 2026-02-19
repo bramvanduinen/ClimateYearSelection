@@ -17,6 +17,7 @@ from RUN_SETTINGS import (
     BATCH_SIZE,
     DF_PROD_DEMAND_FNAME,
     HBF_ITERATIONS,
+    HYDRO,
     MATCH_COUNTRIES,
     NUM_TO_SELECT,
     P_THRES,
@@ -34,6 +35,7 @@ from tqdm import tqdm
 
 from cluster_weather_years.constants import BASE_OUTPUT, HYDROLOGICAL_YEARS, MODELS
 from cluster_weather_years.evaluation import (
+    perform_physical_evaluation,
     plot_lollipop_by_country,
     plot_results_with_pareto,
 )
@@ -95,12 +97,14 @@ def setup_output_directories():
     output_dir_sa = os.path.join(output_dir_run, "simulated_annealing")
     output_dir_hbf = os.path.join(output_dir_run, "hierarchical_brute_force")
     output_dir_eval = os.path.join(output_dir_run, "evaluation")
+    output_dir_eval_country = os.path.join(output_dir_eval, "by_country")
 
     os.makedirs(output_dir_random, exist_ok=True)
     os.makedirs(output_dir_kmedoids, exist_ok=True)
     os.makedirs(output_dir_sa, exist_ok=True)
     os.makedirs(output_dir_hbf, exist_ok=True)
     os.makedirs(output_dir_eval, exist_ok=True)
+    os.makedirs(output_dir_eval_country, exist_ok=True)
 
     # Copy RUN_SETTINGS.py to output dir for record keeping
     shutil.copy(
@@ -114,6 +118,7 @@ def setup_output_directories():
         output_dir_sa,
         output_dir_hbf,
         output_dir_eval,
+        output_dir_eval_country,
     )
 
 
@@ -124,10 +129,19 @@ def load_data():
 
     df_daily = pd.read_parquet(DF_PROD_DEMAND_FNAME)
     df_daily["Date"] = pd.to_datetime(df_daily["Date"])
+    if HYDRO:
+        # HACK: overwrite default Hydrological years
+        # Hydro data starts only in 2015-07-20
+        HYDROLOGICAL_YEARS = range(2016, 2044)
+    else:
+        # HACK: Should be taken from constants, but not found?
+        HYDROLOGICAL_YEARS = range(2015, 2044)
     df_daily = df_daily.query("Hydrological_year in @HYDROLOGICAL_YEARS")
     df_daily = df_daily.set_index(["model", "Date"])
 
-    vars_non_nan = [var for var in VARS_TO_MATCH if not df_daily[var].isna().all()]
+    # HACK: Hydro contains 0 instead of nans, so there have to be non-zero values.
+    vars_non_nan = [var for var in VARS_TO_MATCH if np.max(df_daily[var]) > 0]
+
     df_ref = df_daily[
         ["Hydrological_year", "Calendar_year"] + VARS_TO_MATCH
     ].reset_index()
@@ -486,7 +500,13 @@ def calculate_country_scores(df_all_results, n_workers, output_dir_run):
     return df_country_scores
 
 
-def run_evaluation(df_all_results, df_country_scores, output_dir_eval):
+def run_evaluation(
+    df_all_results,
+    df_country_scores,
+    vars_non_nan,
+    output_dir_eval,
+    output_dir_eval_country,
+):
     """8. Plotting automatic evaluation."""
     logger = logging.getLogger(__name__)
     logger.info("##### 8. Performing automatic evaluation... #####")
@@ -544,6 +564,14 @@ def run_evaluation(df_all_results, df_country_scores, output_dir_eval):
         save_dir=output_dir_eval,
     )
 
+    perform_physical_evaluation(
+        df_all_results,
+        df_ref,
+        MATCH_COUNTRIES,
+        vars_non_nan,
+        output_dir_eval_country,
+    )
+
 
 def main():
     """Run the full selection pipeline."""
@@ -555,6 +583,7 @@ def main():
         output_dir_sa,
         output_dir_hbf,
         output_dir_eval,
+        output_dir_eval_country,
     ) = setup_output_directories()
 
     logger = logging.getLogger(__name__)
@@ -598,7 +627,13 @@ def main():
     )
 
     # 8. Evaluation plots
-    run_evaluation(df_all_results, df_country_scores, output_dir_eval)
+    run_evaluation(
+        df_all_results,
+        df_country_scores,
+        vars_non_nan,
+        output_dir_eval,
+        output_dir_eval_country,
+    )
 
     end_time = datetime.now()
     logger.info(f"Run completed at {end_time.strftime('%Y-%m-%d %H:%M:%S')}")

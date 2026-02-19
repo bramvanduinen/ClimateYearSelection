@@ -68,3 +68,7 @@ HYDRO_VARS = ["HRO", "HRG", "HPO"]
 
 
 INPUT_DIRS = [INPUT_DIR_WIND, INPUT_DIR_SOLAR, INPUT_DIR_TEMP]
+
+# Renewable drought settings (only used for physical evaluation)
+DROUGHT_PERCENTILE = 5  # Below P5 = low renewable day
+DROUGHT_MIN_DURATION = 3  # Minimum consecutive days to count as drought

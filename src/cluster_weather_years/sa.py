@@ -229,7 +229,9 @@ def plot_sa_log(log_df, metric, t0, cr, mi, seed, output_dir_sa):
     plt.close(fig)
 
 
-def run_sa(inputs, metric, t0=2.0, cr=0.98, mi=5_000, seed=42):
+def run_sa(
+    inputs, metric, t0=2.0, cr=0.98, mi=5_000, seed=42, sel_type="full", subset=None
+):
     """Run a single SA instance with given parameters and return results dict."""
     df_daily = inputs["df_daily"]
     vars_to_match = inputs["vars_to_match"]
@@ -248,6 +250,8 @@ def run_sa(inputs, metric, t0=2.0, cr=0.98, mi=5_000, seed=42):
         cooling_rate=cr,
         max_iter=mi,
         random_state=seed,
+        sel_type=sel_type,
+        subset=subset,
     )
 
     sel_dict = {
