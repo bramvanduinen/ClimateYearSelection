@@ -47,12 +47,10 @@ PARAM_GRID = {
     ],
     "temp_start": [2.0],
     "cooling_rate": [
-        [
-            0.99,
-            0.995,
-            0.9975,
-        ],  # 0.9 for quick testing; use [0.99, 0.995, 0.9975] for full runs
-    ],
+        0.99,
+        0.995,
+        0.9975,
+    ],  # 0.9 for quick testing; use [0.99, 0.995, 0.9975] for full runs
     "max_iter": [5000],
 }
 
