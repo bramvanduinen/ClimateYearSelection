@@ -1,65 +1,77 @@
-# overview of settings for SA runs. Make changes here.
+# Run settings for the weather year selection pipeline.
+# Make all configuration changes here.
 import os
 
 from cluster_weather_years.constants import BASE_INPUT
 from cluster_weather_years.sa import wasserstein_score, wasserstein_seasonal_score
 
-### INPUT/OUTPUT SETTINGS ###
-RUNNAME = "testrun_NL_5y"
-HYDRO = False  # whether to include hydro in the matching
+# =============================================================================
+# GENERAL RUN SETTINGS
+# =============================================================================
+RUNNAME = "run_NL_5y_fair"
+HYDRO = False  # whether to include hydro variables in matching
+SEASONAL = True  # True: seasonal scoring/matching  |  False: annual
+NUM_TO_SELECT = 5  # number of years to select
+YEAR_COL = "Hydrological_year"  # "Hydrological_year" or "Calendar_year"
 
-RUN_SA = True  # whether to run simulated annealing
-RUNNAME_SA_FALLBACK = "run_Europe_30y_20260127_1559"  # fallback run to copy SA results from if RUN_SA is False
-RUN_HBF = True  # whether to run hierarchical brute-force
-
-# NOTE: For fair comparison, seasonal should match wasserstein_seasonal or wasserstein regular
-SEASONAL = True  # whether to use seasonal scoring (True) or regular scoring (False) HBF
-
-### SELECTION SETTINGS ###
+# =============================================================================
+# COUNTRIES TO MATCH
+# =============================================================================
 # fmt: off
-# list of countries to consider for matching, can be all countries or a subset
 MATCH_COUNTRIES = ["NL"]
-# MATCH_COUNTRIES = ["NL", "BE"]  # for quick testing
-#MATCH_COUNTRIES = ["NL", "BE", "FR", "DK", "DE", "UK"] # for semi-quick testing
+
+# MATCH_COUNTRIES = ["NL", "BE"]                       # quick testing
+# MATCH_COUNTRIES = ["NL", "BE", "FR", "DK", "DE", "UK"]  # semi-quick testing
 # MATCH_COUNTRIES = [
 #     "AL", "AT", "BE", "BA", "BG", "HR", "CZ", "DK", "EE",
 #     "EL", "FI", "FR", "DE", "HU", "IE", "IT", "LV", "LT",
 #     "LU", "MT", "ME", "MK", "NL", "NO", "PL", "PT", "RO",
 #     "RS", "SK", "SI", "ES", "SE", "CH", "UK", "TR",
-# ] # full list of ENTSO-E countries (note: EL is Greece in Eurostat)
+# ]  # full ENTSO-E country list (EL = Greece in Eurostat notation)
 # fmt: on
 
-NUM_TO_SELECT = 5  # number of years to select
-YEAR_COL = "Hydrological_year"  # Default year column to operate on: "Hydrological_year" or "Calendar_year"
+# =============================================================================
+# SIMULATED ANNEALING (SA) SETTINGS
+# =============================================================================
+RUN_SA = True  # set False to skip SA and load results from RUNNAME_SA_FALLBACK instead
+RUNNAME_SA_FALLBACK = "run_Europe_30y_20260127_1559"
 
-### SA SETTINGS ###
+SEEDS = range(15)
 
-# parameter grid for different SA runs
+# Parameter grid — one SA run is launched per combination of (seed × param set)
+# NOTE: metric should match SEASONAL setting above
 PARAM_GRID = {
     "metric": [
-        wasserstein_seasonal_score
-        # wasserstein_score
-    ],  # [ad_seasonal, wasserstein_score, wasserstein_seasonal_score, combined_score, ad_total],
+        wasserstein_seasonal_score,
+        # wasserstein_score,
+    ],
     "temp_start": [2.0],
-    # "cooling_rate": [0.99, 0.995, 0.9975],
     "cooling_rate": [
-        0.9,
-    ],  # for quick testing
+        [
+            0.99,
+            0.995,
+            0.9975,
+        ],  # 0.9 for quick testing; use [0.99, 0.995, 0.9975] for full runs
+    ],
     "max_iter": [5000],
 }
-SEEDS = range(3)
 
-### Hierarchical Brute-Force (HBF) Settings ###
-P_THRES = 20  # percentile threshold for univariates (25 for one country, 50 for a few countries, 75 for many countries, for 30 years!)
-TUNING_ITERATIONS = int(1e2)
-HBF_ITERATIONS = int(1e4)
-BATCH_SIZE = 100
+# =============================================================================
+# HIERARCHICAL BRUTE-FORCE (HBF) SETTINGS
+# =============================================================================
+RUN_HBF = True  # set False to skip HBF
 
-### DATA SETTINGS ###
+P_THRES = 20  # percentile threshold for univariate pre-filters
+# (guideline: ~25 for 1 country, ~50 for a few, ~75 for many, with 30 years)
+TUNING_ITERATIONS = int(1e3)  # iterations used to calibrate thresholds
+HBF_ITERATIONS = int(1e6)  # total random draws in HBF search
+BATCH_SIZE = 1000  # draws per parallel batch
 
-# filenames to be used as input
+# =============================================================================
+# DATA SETTINGS (usually don't need to change these)
+# =============================================================================
 
-# capacity factors and hydro production (from PECD, downloaded in 00_download_pecd_data.ipynb)
+# Raw input files
 DF_DAILY_FNAME = os.path.join(
     BASE_INPUT, "preprocessed_dataframes/df_daily_all_countries_v3.csv"
 )
@@ -70,7 +82,7 @@ DF_HYDRO_FNAME = os.path.join(
     BASE_INPUT, "preprocessed_dataframes/df_hydro_prod_all_countries_v1.parquet"
 )
 
-# combined production and demand dataframe (produced in 01_build_dataset.ipynb)
+# Combined production + demand dataframe (built in 01_build_dataset.ipynb)
 DF_PROD_DEMAND_FNAME = os.path.join(
     BASE_INPUT,
     "preprocessed_dataframes/df_prod_demand_daily_all_countries_with_hydro_scaled_demand.parquet",
@@ -80,22 +92,17 @@ DF_PROD_DEMAND_FNAME_REGION = os.path.join(
     "preprocessed_dataframes/df_prod_demand_daily_all_regions_with_hydro_scaled_demand.parquet",
 )
 
-if HYDRO:
-    VARS_TO_MATCH = (
-        [f"{country}_OFF_prod" for country in MATCH_COUNTRIES]
-        + [f"{country}_ON_prod" for country in MATCH_COUNTRIES]
-        + [f"{country}_SOLAR_prod" for country in MATCH_COUNTRIES]
-        + [f"{country}_Demand" for country in MATCH_COUNTRIES]
-        + [f"{country}_Residual_load" for country in MATCH_COUNTRIES]
-        + [f"{country}_HRO_prod" for country in MATCH_COUNTRIES]  # hydro run-of-river
-        + [f"{country}_HRG_prod" for country in MATCH_COUNTRIES]  # hydro reservoir
-        + [f"{country}_HPO_prod" for country in MATCH_COUNTRIES]  # hydro ROR + pondage
-    )
-else:
-    VARS_TO_MATCH = (
-        [f"{country}_OFF_prod" for country in MATCH_COUNTRIES]
-        + [f"{country}_ON_prod" for country in MATCH_COUNTRIES]
-        + [f"{country}_SOLAR_prod" for country in MATCH_COUNTRIES]
-        + [f"{country}_Demand" for country in MATCH_COUNTRIES]
-        + [f"{country}_Residual_load" for country in MATCH_COUNTRIES]
-    )
+# Variables to match — derived from MATCH_COUNTRIES and HYDRO flag
+_base_vars = (
+    [f"{c}_OFF_prod" for c in MATCH_COUNTRIES]
+    + [f"{c}_ON_prod" for c in MATCH_COUNTRIES]
+    + [f"{c}_SOLAR_prod" for c in MATCH_COUNTRIES]
+    + [f"{c}_Demand" for c in MATCH_COUNTRIES]
+    + [f"{c}_Residual_load" for c in MATCH_COUNTRIES]
+)
+_hydro_vars = (
+    [f"{c}_HRO_prod" for c in MATCH_COUNTRIES]  # run-of-river
+    + [f"{c}_HRG_prod" for c in MATCH_COUNTRIES]  # reservoir
+    + [f"{c}_HPO_prod" for c in MATCH_COUNTRIES]  # ROR + pondage
+)
+VARS_TO_MATCH = _base_vars + (_hydro_vars if HYDRO else [])

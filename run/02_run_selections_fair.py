@@ -59,6 +59,21 @@ from cluster_weather_years.scores import wasserstein_score, wasserstein_seasonal
 # pylint: enable=import-error
 
 
+def _parse_model_years(df: pd.DataFrame) -> pd.DataFrame:
+    """Parse model_years column from CSV string repr back to tuples after read_csv."""
+    if "model_years" not in df.columns:
+        return df
+    df = df.copy()
+    df["model_years"] = df["model_years"].apply(
+        lambda x: (
+            tuple(tuple(my) for my in literal_eval(x))
+            if isinstance(x, str)
+            else tuple(tuple(my) for my in x)
+        )
+    )
+    return df
+
+
 def setup_output_directories():
     """0. Create output directories."""
     rundate = datetime.now().strftime("%Y%m%d_%H%M")
@@ -240,9 +255,6 @@ def run_baseline_random_draws(
         for i, fut in enumerate(as_completed(futures), start=1):
             batch = fut.result()
             all_results.extend(batch)
-            logger.info(
-                f"Random draw batch {i}/{n_workers} done ({len(batch)} draws scored)."
-            )
 
     # keep only best len(SEEDS) like in SA by score
     sort_col = "wasserstein_seasonal" if SEASONAL else "wasserstein"
@@ -317,9 +329,6 @@ def run_simulated_annealing(df_ref, vars_non_nan, output_dir_sa):
             ]
             for i, fut in enumerate(as_completed(futures), start=1):
                 sel_dict = fut.result()
-                # HACK: convert model_years to tuple for saving in DataFrame
-                # TODO: fix in run_sa
-                sel_dict["model_years"] = tuple(sel_dict["model_years"])
                 results.append(sel_dict)
                 logger.info(
                     f"Experiment {i} done: {sel_dict['optimized_metric']} = {sel_dict['best_score']:.2f}"
@@ -334,12 +343,14 @@ def run_simulated_annealing(df_ref, vars_non_nan, output_dir_sa):
         logger.info("##### 2. Skipping Simulated Annealing as per settings... #####")
 
         n_workers = os.cpu_count()
-        df_results = pd.read_csv(
-            os.path.join(
-                BASE_OUTPUT,
-                f"{RUNNAME_SA_FALLBACK}/simulated_annealing/sa_year_selections.csv",
-            ),
-            index_col=0,
+        df_results = _parse_model_years(
+            pd.read_csv(
+                os.path.join(
+                    BASE_OUTPUT,
+                    f"{RUNNAME_SA_FALLBACK}/simulated_annealing/sa_year_selections.csv",
+                ),
+                index_col=0,
+            )
         )
         logger.info(
             f"Simulated Annealing results copied from fallback run: {RUNNAME_SA_FALLBACK}"
@@ -492,8 +503,8 @@ def score_all_selections(
     selection_sources = {
         "random_draws": baseline_random_draws_df,
         #   "k_medoids": k_medoids_modelyears,
-        "simulated_annealing": pd.read_csv(
-            os.path.join(output_dir_sa, "sa_year_selections.csv")
+        "simulated_annealing": _parse_model_years(
+            pd.read_csv(os.path.join(output_dir_sa, "sa_year_selections.csv"))
         ),
     }
 
@@ -502,37 +513,58 @@ def score_all_selections(
         logger.info(f"Scoring selections from {source_name}...")
         for _, row in df_sel.iterrows():
             sel_modelyears = row["model_years"]
-            if isinstance(sel_modelyears, str):
-                sel_modelyears = literal_eval(
-                    sel_modelyears
-                )  # convert string back to list
             df_sub = build_df_from_modelyears(df_ref, sel_modelyears, YEAR_COL)
-            scores = score_df(
-                df_ref,
-                df_sub,
-                sel_modelyears,
-                None,
-                None,
-                None,
-                vars_non_nan,
-                skip_check=False,
-            )[1]
+            if SEASONAL:
+                scores = score_df_seasonal(
+                    df_ref,
+                    df_sub,
+                    sel_modelyears,
+                    None,
+                    None,
+                    None,
+                    vars_non_nan,
+                    skip_check=False,
+                )[1]
+            else:
+                scores = score_df(
+                    df_ref,
+                    df_sub,
+                    sel_modelyears,
+                    None,
+                    None,
+                    None,
+                    vars_non_nan,
+                    skip_check=False,
+                )[1]
             score_row = {"selection_source": source_name, "model_years": sel_modelyears}
             score_row.update(scores)
             all_rows.append(score_row)
 
     # K-medoids
     df_k_med = build_df_from_modelyears(df_ref, k_medoids_modelyears, YEAR_COL)
-    kmedoid_scores = score_df(
-        df_ref,
-        df_k_med,
-        k_medoids_modelyears,
-        None,
-        None,
-        None,
-        vars_non_nan,
-        skip_check=False,
-    )[1]
+    if SEASONAL:
+        kmedoid_scores = score_df_seasonal(
+            df_ref,
+            df_k_med,
+            k_medoids_modelyears,
+            None,
+            None,
+            None,
+            vars_non_nan,
+            skip_check=False,
+        )[1]
+    else:
+        kmedoid_scores = score_df(
+            df_ref,
+            df_k_med,
+            k_medoids_modelyears,
+            None,
+            None,
+            None,
+            vars_non_nan,
+            skip_check=False,
+        )[1]
+
     score_row = {"selection_source": "k_medoids", "model_years": k_medoids_modelyears}
     score_row.update(kmedoid_scores)
     all_rows.append(score_row)
@@ -542,6 +574,11 @@ def score_all_selections(
         df_all_results = pd.concat([pd.DataFrame(all_rows), df_pass], ignore_index=True)
     else:
         df_all_results = pd.DataFrame(all_rows)
+
+    # sort by score
+    df_all_results = df_all_results.sort_values(
+        "wasserstein_seasonal" if SEASONAL else "wasserstein"
+    ).reset_index(drop=True)
 
     df_all_results.to_csv(
         os.path.join(output_dir_run, "all_year_selections_scored.csv"), index=True
@@ -557,31 +594,35 @@ def score_all_selections(
 def process_row(row):
     """Score a single row (selection) on a country-level. Function processed in parallel."""
     sel_modelyears = row["model_years"]
-    if isinstance(sel_modelyears, str):
-        sel_modelyears = literal_eval(sel_modelyears)  # convert string back to tuple
     df_sub = build_df_from_modelyears(df_ref, sel_modelyears, YEAR_COL)
 
     row_scores_per_country = []
     for country in MATCH_COUNTRIES:
-        country_vars = [
-            f"{country}_OFF_prod",
-            f"{country}_ON_prod",
-            f"{country}_SOLAR_prod",
-            f"{country}_Demand",
-            f"{country}_Residual_load",
-        ]
-
-        scores = score_df(
-            df_ref,
-            df_sub,
-            sel_modelyears,
-            None,
-            None,
-            None,
-            country_vars,
-            n_projections=50,  # reduce computation time
-            skip_check=False,
-        )[1]
+        country_vars = [v for v in vars_non_nan if v.startswith(f"{country}_")]
+        if SEASONAL:
+            scores = score_df_seasonal(
+                df_ref,
+                df_sub,
+                sel_modelyears,
+                None,
+                None,
+                None,
+                country_vars,
+                n_projections=50,  # reduce computation time
+                skip_check=False,
+            )[1]
+        else:
+            scores = score_df(
+                df_ref,
+                df_sub,
+                sel_modelyears,
+                None,
+                None,
+                None,
+                country_vars,
+                n_projections=50,  # reduce computation time
+                skip_check=False,
+            )[1]
 
         score_row = {
             "selection_source": row["selection_source"],
@@ -608,8 +649,10 @@ def calculate_country_scores(df_all_results, n_workers, output_dir_run):
     for sub in nested_rows:
         country_rows.extend(sub)
 
-    df_country_scores = pd.DataFrame(country_rows).sort_values(
-        "wasserstein_seasonal" if SEASONAL else "wasserstein"
+    df_country_scores = (
+        pd.DataFrame(country_rows)
+        .sort_values("wasserstein_seasonal" if SEASONAL else "wasserstein")
+        .reset_index(drop=True)
     )
     df_country_scores.to_csv(
         os.path.join(output_dir_run, "all_year_selections_country_scores.csv"),
@@ -629,13 +672,22 @@ def run_evaluation(
     logger = logging.getLogger(__name__)
     logger.info("##### 8. Performing automatic evaluation... #####")
 
-    list_cols = [
-        "d_mean",
-        "qq_mae",
-        "energy_distance_score",
-        "qq_mae_high",
-        "qq_mae_low",
-    ]
+    if SEASONAL:
+        list_cols = [
+            "d_mean_seasonal",
+            "qq_mae_seasonal",
+            "energy_distance_score_seasonal",
+            "qq_mae_high_seasonal",
+            "qq_mae_low_seasonal",
+        ]
+    else:
+        list_cols = [
+            "d_mean",
+            "qq_mae",
+            "energy_distance_score",
+            "qq_mae_high",
+            "qq_mae_low",
+        ]
 
     for col in list_cols:
         col_max = "max_" + col
@@ -650,19 +702,34 @@ def run_evaluation(
         save_dir=output_dir_eval,
     )
 
-    plot_results_with_pareto(
-        df_all_results,
-        metric_1="max_qq_mae",
-        metric_2="max_energy_distance_score",
-        save_dir=output_dir_eval,
-    )
+    if SEASONAL:
+        plot_results_with_pareto(
+            df_all_results,
+            metric_1="max_qq_mae_seasonal",
+            metric_2="max_energy_distance_score_seasonal",
+            save_dir=output_dir_eval,
+        )
 
-    plot_results_with_pareto(
-        df_all_results,
-        metric_1="max_qq_mae_high",
-        metric_2="max_qq_mae_low",
-        save_dir=output_dir_eval,
-    )
+        plot_results_with_pareto(
+            df_all_results,
+            metric_1="max_qq_mae_high_seasonal",
+            metric_2="max_qq_mae_low_seasonal",
+            save_dir=output_dir_eval,
+        )
+    else:
+        plot_results_with_pareto(
+            df_all_results,
+            metric_1="max_qq_mae",
+            metric_2="max_energy_distance_score",
+            save_dir=output_dir_eval,
+        )
+
+        plot_results_with_pareto(
+            df_all_results,
+            metric_1="max_qq_mae_high",
+            metric_2="max_qq_mae_low",
+            save_dir=output_dir_eval,
+        )
 
     plot_lollipop_by_country(
         df_all_results,
@@ -708,9 +775,22 @@ def main():
     start_time = datetime.now()
     logger.info(f"Run started at {start_time.strftime('%Y-%m-%d %H:%M:%S')}")
 
+    NUM_SA_EXPERIMENTS = len(PARAM_GRID["cooling_rate"]) * len(SEEDS)
+    SA_COOLING_RATES = PARAM_GRID["cooling_rate"]
+    logger.info(
+        "##### Run settings #####\n"
+        f"  MATCH_COUNTRIES    : {MATCH_COUNTRIES}\n"
+        f"  NUM_TO_SELECT      : {NUM_TO_SELECT}\n"
+        f"  HYDRO              : {HYDRO}\n"
+        f"  SEASONAL           : {SEASONAL}\n"
+        f"  HBF_ITERATIONS     : {HBF_ITERATIONS}\n"
+        f"  NUM_SA_EXPERIMENTS : {NUM_SA_EXPERIMENTS}\n"
+        f"  SA_COOLING_RATES   : {SA_COOLING_RATES}"
+    )
+
     # 1. Load data
-    # HACK: make df_ref global for multiprocessing
-    global df_ref
+    # HACK: make df_ref and vars_non_nan global for multiprocessing
+    global df_ref, vars_non_nan
     df_ref, vars_non_nan, model_years, rng = load_data()
 
     # 2. Simulated Annealing (must run before random draws to determine n_iter)

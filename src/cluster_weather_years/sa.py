@@ -255,7 +255,7 @@ def run_sa(
     )
 
     sel_dict = {
-        "model_years": selected,
+        "model_years": tuple(tuple(my) for my in selected),
         "optimized_metric": metric.__name__,
         "best_score": best_score,
         "seed": seed,
