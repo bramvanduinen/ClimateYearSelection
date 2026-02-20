@@ -11,6 +11,7 @@ from sklearn_extra.cluster import KMedoids
 
 # from cluster_weather_years.functions import build_df, plot_clim_per_cluster
 # from cluster_weather_years.constants import YEAR_COL
+from cluster_weather_years.constants import SEASONS
 
 
 # %%
@@ -21,6 +22,7 @@ def k_medoids_clustering(
     output_dir: str,
     year_col="Hydrological_year",
     random_state: int = 42,
+    SEASONAL=False,
 ):
     """Perform K-Medoids clustering on the provided DataFrame.
 
@@ -30,6 +32,7 @@ def k_medoids_clustering(
         vars_to_match (list[str]): List of variable names to consider for clustering.
         output_dir (str): Directory to save output files.
         random_state (int, optional): Random state for reproducibility. Defaults to 42.
+        SEASONAL (bool, optional): Whether to use seasonal scoring. Defaults to False.
     """
 
     # Standardize the data
@@ -42,10 +45,28 @@ def k_medoids_clustering(
     )
     df_standardized[["model", year_col]] = df_raw[["model", year_col]]
 
-    # Compute yearly statistics of vars_to_match (mean and variance)
-    yearly_stats = df_standardized.groupby(["model", year_col]).agg(["mean", "var"])
-    yearly_stats.columns = [f"{var}_{stat}" for var, stat in yearly_stats.columns]
-    yearly_stats = yearly_stats.reset_index()
+    if SEASONAL:
+        # Compute seasonal statistics (mean and var per season per variable)
+        # Requires a 'Date' column in df
+        df_standardized["Date"] = pd.to_datetime(df["Date"].values)
+        season_frames = []
+        for season_name, months in SEASONS.items():
+            in_season = df_standardized["Date"].dt.month.isin(months)
+            df_season = df_standardized.loc[in_season]
+            season_stats = df_season.groupby(["model", year_col])[vars_to_match].agg(
+                ["mean", "var"]
+            )
+            season_stats.columns = [
+                f"{var}_{stat}_{season_name}"
+                for var, stat in season_stats.columns
+            ]
+            season_frames.append(season_stats)
+        yearly_stats = pd.concat(season_frames, axis=1).reset_index()
+    else:
+        # Compute yearly statistics of vars_to_match (mean and variance)
+        yearly_stats = df_standardized.groupby(["model", year_col]).agg(["mean", "var"])
+        yearly_stats.columns = [f"{var}_{stat}" for var, stat in yearly_stats.columns]
+        yearly_stats = yearly_stats.reset_index()
 
     stats_scaled = scaler.fit_transform(yearly_stats.drop(columns=[year_col, "model"]))
 

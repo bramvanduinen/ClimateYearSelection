@@ -259,9 +259,10 @@ def run_sa(
         "optimized_metric": metric.__name__,
         "best_score": best_score,
         "seed": seed,
-        "t0": t0,
+        # "t0": t0,
         "cr": cr,
-        "mi": mi,
+        # "mi": mi,
+        "n_iter": int(log_df["iter"].iloc[-1]),
     }
 
     # plot logs of SA run and save the plot
