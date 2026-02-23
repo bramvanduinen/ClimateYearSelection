@@ -8,10 +8,10 @@ from cluster_weather_years.sa import wasserstein_score, wasserstein_seasonal_sco
 # =============================================================================
 # GENERAL RUN SETTINGS
 # =============================================================================
-RUNNAME = "run_NL_5y_fair"
+RUNNAME = "run_NL_30y_fair"
 HYDRO = False  # whether to include hydro variables in matching
 SEASONAL = True  # True: seasonal scoring/matching  |  False: annual
-NUM_TO_SELECT = 5  # number of years to select
+NUM_TO_SELECT = 30  # number of years to select
 YEAR_COL = "Hydrological_year"  # "Hydrological_year" or "Calendar_year"
 
 # =============================================================================

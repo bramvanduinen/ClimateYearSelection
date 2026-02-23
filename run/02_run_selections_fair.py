@@ -256,12 +256,12 @@ def run_baseline_random_draws(
             batch = fut.result()
             all_results.extend(batch)
 
-    # keep only best len(SEEDS) like in SA by score
+    # keep only best len(SEEDS) * len(PARAM_GRID["cooling_rate"]) like in SA by score
     sort_col = "wasserstein_seasonal" if SEASONAL else "wasserstein"
     baseline_random_draws_df = (
         pd.DataFrame(all_results)
         .sort_values(sort_col)
-        .head(len(SEEDS))
+        .head(len(SEEDS) * len(PARAM_GRID["cooling_rate"]))
         .reset_index(drop=True)
     )
     baseline_random_draws_df["selection_source"] = "random"
@@ -270,7 +270,7 @@ def run_baseline_random_draws(
     )
 
     logger.info(
-        f"Baseline random draws completed. Best {len(SEEDS)} of {num_jobs} saved to {output_dir_random}."
+        f"Baseline random draws completed. Best {len(SEEDS) * len(PARAM_GRID['cooling_rate'])} of {num_jobs} saved to {output_dir_random}."
     )
     return baseline_random_draws_df
 
