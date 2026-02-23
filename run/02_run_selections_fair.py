@@ -14,11 +14,12 @@ import pandas as pd
 
 # pylint: disable=import-error
 from RUN_SETTINGS import (
-    BATCH_SIZE,
+    # BATCH_SIZE,
     DF_PROD_DEMAND_FNAME,
-    HBF_ITERATIONS,
+    HBF_ITER_MULTIPLIER,
     HYDRO,
     MATCH_COUNTRIES,
+    NUM_EXPERIMENTS,
     NUM_TO_SELECT,
     P_THRES,
     PARAM_GRID,
@@ -27,7 +28,6 @@ from RUN_SETTINGS import (
     RUNNAME,
     RUNNAME_SA_FALLBACK,
     SEASONAL,
-    SEEDS,
     TUNING_ITERATIONS,
     VARS_TO_MATCH,
     YEAR_COL,
@@ -166,7 +166,7 @@ def load_data():
     ].reset_index()
 
     model_years = list(product(MODELS, HYDROLOGICAL_YEARS))
-    rng = np.random.default_rng(SEEDS[0])
+    rng = np.random.default_rng(0)
 
     return df_ref, vars_non_nan, model_years, rng
 
@@ -177,11 +177,8 @@ def run_baseline_random_draws_old(model_years, rng, output_dir_random):
     logger = logging.getLogger(__name__)
     logger.info("##### 2. Performing Baseline Random Draws... #####")
 
-    # Use same amount of jobs as SA
-    num_jobs = len(list(product(SEEDS, product(*PARAM_GRID.values()))))
-
     baseline_random_draws = draw_random_modelyears(
-        model_years, num_jobs, NUM_TO_SELECT, rng
+        model_years, NUM_EXPERIMENTS, NUM_TO_SELECT, rng
     )
 
     baseline_random_draws_df = pd.DataFrame({"model_years": baseline_random_draws})
@@ -196,12 +193,14 @@ def run_baseline_random_draws_old(model_years, rng, output_dir_random):
 
 
 def _draw_random_batch(args):
-    """Draw and score a batch of random year selections (worker function)."""
+    """Draw and score a batch of random year selections; return the single best result."""
     seed, model_years, batch_size, num_to_select, vars_non_nan = args
     rng = np.random.default_rng(seed)
     draws = draw_random_modelyears(model_years, batch_size, num_to_select, rng)
-    results = []
-    for model_years_draw in tqdm(draws, total=len(draws)):
+    score_key = "wasserstein_seasonal" if SEASONAL else "wasserstein"
+    best_score = float("inf")
+    best_result = None
+    for model_years_draw in draws:
         score = (
             wasserstein_seasonal_score(
                 df=df_ref,
@@ -219,50 +218,50 @@ def _draw_random_batch(args):
                 n_projections=50,
             )
         )
-        score_key = "wasserstein_seasonal" if SEASONAL else "wasserstein"
-        results.append({"model_years": model_years_draw, score_key: score})
-    return results
+        if score < best_score:
+            best_score = score
+            best_result = {"model_years": model_years_draw, score_key: score}
+    return best_result
 
 
 def run_baseline_random_draws(
-    model_years, vars_non_nan, df_sa_results, output_dir_random
+    model_years, vars_non_nan, num_draws_total, output_dir_random
 ):
-    """3. Baseline Random Draws."""
+    """3. Baseline Random Draws.
+
+    Draws are split into NUM_EXPERIMENTS batches (each seeded by its experiment index).
+    Only the best (lowest wasserstein score) from each batch is kept, yielding
+    exactly NUM_EXPERIMENTS results — one per batch.
+    """
     logger = logging.getLogger(__name__)
     logger.info("##### 3. Performing Baseline Random Draws... #####")
-
-    num_jobs = int(df_sa_results["n_iter"].sum())
+    batch_size = math.ceil(num_draws_total / NUM_EXPERIMENTS)
     logger.info(
-        f"Drawing and scoring {num_jobs} random selections (= sum of SA n_iter) in mode {'seasonal' if SEASONAL else 'annual'}."
+        f"Drawing and scoring {num_draws_total} random selections in {NUM_EXPERIMENTS} batches "
+        f"(batch_size={batch_size}) in mode {'seasonal' if SEASONAL else 'annual'}. "
+        f"Keeping best 1 per batch."
     )
 
-    n_workers = min(os.cpu_count() or 1, num_jobs)
-    batch_size = math.ceil(num_jobs / n_workers)
+    n_workers = min(os.cpu_count() or 1, NUM_EXPERIMENTS)
+    # Each experiment gets its own unique seed (experiment index)
+    job_args = [
+        (seed, model_years, batch_size, NUM_TO_SELECT, vars_non_nan)
+        for seed in range(NUM_EXPERIMENTS)
+    ]
 
-    # deterministic per-batch seeds, matching HBF style
-    seeds = np.random.SeedSequence(SEEDS[0]).spawn(n_workers)
-    seeds = [int(s.generate_state(1)[0]) for s in seeds]
-
-    all_results = []
+    all_best = []
     with ProcessPoolExecutor(max_workers=n_workers) as ex:
-        job_args = [
-            (seed, model_years, batch_size, NUM_TO_SELECT, vars_non_nan)
-            for seed in seeds
-        ]
         futures = {
             ex.submit(_draw_random_batch, args): i for i, args in enumerate(job_args)
         }
-        for i, fut in enumerate(as_completed(futures), start=1):
-            batch = fut.result()
-            all_results.extend(batch)
+        for fut in as_completed(futures):
+            best = fut.result()
+            if best is not None:
+                all_best.append(best)
 
-    # keep only best len(SEEDS) * len(PARAM_GRID["cooling_rate"]) like in SA by score
     sort_col = "wasserstein_seasonal" if SEASONAL else "wasserstein"
     baseline_random_draws_df = (
-        pd.DataFrame(all_results)
-        .sort_values(sort_col)
-        .head(len(SEEDS) * len(PARAM_GRID["cooling_rate"]))
-        .reset_index(drop=True)
+        pd.DataFrame(all_best).sort_values(sort_col).reset_index(drop=True)
     )
     baseline_random_draws_df["selection_source"] = "random"
     baseline_random_draws_df.to_csv(
@@ -270,7 +269,8 @@ def run_baseline_random_draws(
     )
 
     logger.info(
-        f"Baseline random draws completed. Best {len(SEEDS) * len(PARAM_GRID['cooling_rate'])} of {num_jobs} saved to {output_dir_random}."
+        f"Baseline random draws completed. Best-per-batch saved: {len(baseline_random_draws_df)} "
+        f"results from {num_draws_total} total draws → {output_dir_random}."
     )
     return baseline_random_draws_df
 
@@ -306,17 +306,22 @@ def run_simulated_annealing(df_ref, vars_non_nan, output_dir_sa):
             "output_dir_sa": output_dir_sa,
             "YEAR_COL": YEAR_COL,
         }
+        # Distribute cooling rates fairly across NUM_EXPERIMENTS unique seeds:
+        # experiment i gets cooling_rates[i * n_cr // NUM_EXPERIMENTS]
+        cooling_rates = PARAM_GRID["cooling_rate"]
+        n_cr = len(cooling_rates)
+        metric = PARAM_GRID["metric"][0]
+        t0 = PARAM_GRID["temp_start"][0]
+        mi = PARAM_GRID["max_iter"][0]
         param_set = [
             {
-                "seed": seed,
+                "seed": i,
                 "metric": metric,
                 "t0": t0,
-                "cr": cr,
+                "cr": cooling_rates[i * n_cr // NUM_EXPERIMENTS],
                 "mi": mi,
             }
-            for seed, (metric, t0, cr, mi) in product(
-                SEEDS, product(*PARAM_GRID.values())
-            )
+            for i in range(NUM_EXPERIMENTS)
         ]
 
         # run jobs in parallel
@@ -369,6 +374,7 @@ def run_hierarchical_brute_force(
     model_years,
     rng,
     output_dir_hbf,
+    hbf_iterations,
 ):
     """5. Hierarchical Subset Brute-Force."""
     # NOTE: scales very poorly with increasing vars_to_match
@@ -417,17 +423,21 @@ def run_hierarchical_brute_force(
             os.path.join(output_dir_hbf, "hbf_thresholds.csv"), index=True
         )
 
-        n_batches = math.ceil(HBF_ITERATIONS / BATCH_SIZE)
+        # Split hbf_iterations into NUM_EXPERIMENTS batches (one unique seed each).
+        # Only the best result (lowest wasserstein score) per batch is kept.
+        n_batches = NUM_EXPERIMENTS
+        batch_size_hbf = math.ceil(hbf_iterations / n_batches)
+        hbf_total = n_batches * batch_size_hbf  # may be slightly > hbf_iterations
+        # Seeds: experiments 0..NUM_EXPERIMENTS-1
+        hbf_seeds = list(range(n_batches))
 
-        # deterministic per-batch seeds
-        seeds = np.random.SeedSequence(SEEDS[0]).spawn(n_batches)
-        seeds = [int(s.generate_state(1)[0]) for s in seeds]
-
-        results_pass = []
+        # Each record in pass_rec already contains "model_years" (set inside
+        # score_df / score_df_seasonal), so it lands in df_pass automatically.
+        results_pass = []  # one best-scoring record per batch
         results_fail = []
-        modelyears_pass = []
 
         max_workers = os.cpu_count()
+        score_col = "wasserstein_seasonal" if SEASONAL else "wasserstein"
 
         with ProcessPoolExecutor(
             max_workers=max_workers,
@@ -446,22 +456,23 @@ def run_hierarchical_brute_force(
             it = ex.map(
                 run_batch,
                 range(n_batches),
-                [BATCH_SIZE] * n_batches,
-                [HBF_ITERATIONS] * n_batches,
-                seeds,
+                [batch_size_hbf] * n_batches,
+                [hbf_total] * n_batches,
+                hbf_seeds,
                 [SEASONAL] * n_batches,
             )
 
-            for pass_rec, fail_rec, pass_years in tqdm(it, total=n_batches):
-                results_pass.extend(pass_rec)
+            for pass_rec, fail_rec, _pass_years in tqdm(it, total=n_batches):
                 results_fail.extend(fail_rec)
-                modelyears_pass.extend(pass_years)
+                if pass_rec:
+                    best = min(pass_rec, key=lambda r: r[score_col])
+                    results_pass.append(best)
 
-        df_pass = pd.DataFrame(results_pass).sort_values("wasserstein")
+        df_pass = pd.DataFrame(results_pass).sort_values(score_col)
         df_pass["selection_source"] = "HBF"
         df_fail = pd.DataFrame(results_fail)[["fail_check", "fail_var"]]
 
-        skip_rate = len(df_fail) / HBF_ITERATIONS
+        skip_rate = len(df_fail) / hbf_iterations
         logger.info(f"Skip rate: {skip_rate}")
 
         logger.info(
@@ -775,7 +786,6 @@ def main():
     start_time = datetime.now()
     logger.info(f"Run started at {start_time.strftime('%Y-%m-%d %H:%M:%S')}")
 
-    NUM_SA_EXPERIMENTS = len(PARAM_GRID["cooling_rate"]) * len(SEEDS)
     SA_COOLING_RATES = PARAM_GRID["cooling_rate"]
     logger.info(
         "##### Run settings #####\n"
@@ -783,9 +793,9 @@ def main():
         f"  NUM_TO_SELECT      : {NUM_TO_SELECT}\n"
         f"  HYDRO              : {HYDRO}\n"
         f"  SEASONAL           : {SEASONAL}\n"
-        f"  HBF_ITERATIONS     : {HBF_ITERATIONS}\n"
-        f"  NUM_SA_EXPERIMENTS : {NUM_SA_EXPERIMENTS}\n"
-        f"  SA_COOLING_RATES   : {SA_COOLING_RATES}"
+        f"  HBF_ITER_MULTIPLIER: {HBF_ITER_MULTIPLIER}x\n"
+        f"  NUM_EXPERIMENTS    : {NUM_EXPERIMENTS}\n"
+        f"  SA_COOLING_RATES   : {SA_COOLING_RATES} (distributed over {NUM_EXPERIMENTS} unique seeds)"
     )
 
     # 1. Load data
@@ -795,18 +805,24 @@ def main():
 
     # 2. Simulated Annealing (must run before random draws to determine n_iter)
     df_results, n_workers = run_simulated_annealing(df_ref, vars_non_nan, output_dir_sa)
+    sa_total_iters = int(df_results["n_iter"].sum())
 
     # 3. Baseline Random Draws (num draws = sum of SA n_iter)
     baseline_random_draws_df = run_baseline_random_draws(
-        model_years, vars_non_nan, df_results, output_dir_random
+        model_years, vars_non_nan, sa_total_iters, output_dir_random
     )
 
     # 4. K-medoids
     run_kmedoids(df_ref, vars_non_nan, output_dir_kmedoids, SEASONAL)
 
     # 5. Hierarchical Brute-Force
+    hbf_iterations = HBF_ITER_MULTIPLIER * sa_total_iters
+    logger.info(
+        f"HBF will run {hbf_iterations} iterations "
+        f"({HBF_ITER_MULTIPLIER}x SA total of {sa_total_iters})."
+    )
     df_pass = run_hierarchical_brute_force(
-        df_ref, vars_non_nan, model_years, rng, output_dir_hbf
+        df_ref, vars_non_nan, model_years, rng, output_dir_hbf, hbf_iterations
     )
 
     # 6. Score all selections
