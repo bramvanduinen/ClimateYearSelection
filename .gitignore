@@ -4,6 +4,7 @@ __pycache__/
 /run/illustrations/wasserstein_illustration.ipynb
 /run/illustrations/mean_prod_demand_per_country.ipynb
 /run/illustrations/wasserstein_joint_illustration.ipynb
+/run/old/
 /weather_year_selection/
 /run/shapefiles/*
 !/run/shapefiles/.gitkeep

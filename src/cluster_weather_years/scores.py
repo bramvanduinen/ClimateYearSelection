@@ -45,7 +45,9 @@ def wasserstein_score(
     # full_data[np.isnan(full_data)] = 0
 
     # 50 projections is compromise between accuracy and speed. Better would be: 200
-    return sliced_wasserstein_distance(sub_data, full_data, n_projections=n_projections)
+    return sliced_wasserstein_distance(
+        sub_data, full_data, n_projections=n_projections, seed=42
+    )
 
 
 def wasserstein_seasonal_score(
@@ -77,7 +79,7 @@ def wasserstein_seasonal_score(
         # 50 projections is compromise between accuracy and speed. Better would be: 200
         wasserstein_seasonal.append(
             sliced_wasserstein_distance(
-                sub_data, full_data, n_projections=n_projections
+                sub_data, full_data, n_projections=n_projections, seed=42
             )
         )
     # base score on worst-performing season

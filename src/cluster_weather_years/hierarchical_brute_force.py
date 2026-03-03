@@ -244,6 +244,7 @@ def score_df(
         df_sub[vars_non_nan].to_numpy(),
         df_ref[vars_non_nan].to_numpy(),
         n_projections=n_projections,
+        seed=42,
     )
 
     # wasserstein_seasonal
@@ -365,6 +366,7 @@ def score_df_seasonal(
         df_sub[vars_non_nan].to_numpy(),
         df_ref[vars_non_nan].to_numpy(),
         n_projections=n_projections,
+        seed=42,
     )
 
     wasserstein_seasonal = wasserstein_seasonal_score(

@@ -8,7 +8,7 @@ from cluster_weather_years.sa import wasserstein_score, wasserstein_seasonal_sco
 # =============================================================================
 # GENERAL RUN SETTINGS
 # =============================================================================
-RUNNAME = "test_run_NL_5y_fair"
+RUNNAME = "run_NL_5y_fair_high_cr"
 HYDRO = False  # whether to include hydro variables in matching
 SEASONAL = True  # True: seasonal scoring/matching  |  False: annual
 NUM_TO_SELECT = 5  # number of years to select
@@ -39,7 +39,7 @@ RUNNAME_SA_FALLBACK = "run_Europe_30y_20260127_1559"
 # Total number of SA/random-draw/HBF experiments (each gets a unique seed).
 # Cooling rates are distributed as evenly as possible across experiments:
 # e.g. 45 experiments with 3 cooling rates → 15 experiments per rate.
-NUM_EXPERIMENTS = 3
+NUM_EXPERIMENTS = 25
 
 # Parameter grid — cooling_rate is distributed fairly across NUM_EXPERIMENTS seeds.
 # All other grid values must be single-element lists (only first value is used).
@@ -53,8 +53,8 @@ PARAM_GRID = {
     "cooling_rate": [
         # 0.99,
         # 0.995,
-        # 0.9975,
-        0.9
+        0.9975,
+        # 0.975
     ],  # 0.9 for quick testing; use [0.99, 0.995, 0.9975] for full runs
     "max_iter": [5000],
 }
@@ -64,9 +64,9 @@ PARAM_GRID = {
 # =============================================================================
 RUN_HBF = True  # set False to skip HBF
 
-P_THRES = 35  # percentile threshold for univariate pre-filters
+P_THRES = 25  # percentile threshold for univariate pre-filters
 # (guideline: ~25 for 1 country, ~50 for a few, ~75 for many, with 30 years)
-TUNING_ITERATIONS = int(1e2)  # iterations used to calibrate thresholds
+TUNING_ITERATIONS = int(1e3)  # iterations used to calibrate thresholds
 # HBF runs HBF_ITER_MULTIPLIER × (sum of SA n_iter) total draws.
 # E.g. with NUM_EXPERIMENTS=45 and sa_iter=5000 → 45*5000*10 = 2,250,000 draws.
 HBF_ITER_MULTIPLIER = 10
