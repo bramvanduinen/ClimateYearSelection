@@ -11,6 +11,7 @@ __pycache__/
 /side_quests/
 /src/cluster_weather_years/TESTVERSION_hierarchical_brute_force.py
 /run/04_evaluation_notebooks/
+/run/RUN_SETTINGS.py
 
 
 # Distribution / packaging

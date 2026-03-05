@@ -304,7 +304,7 @@ def run_simulated_annealing(df_ref, vars_non_nan, output_dir_sa):
         )
 
         # build jobs
-        constant_inputs = {
+        sa_shared_inputs = {
             "df_daily": df_ref,
             "vars_to_match": vars_non_nan,
             "NUM_CLUSTERS": NUM_TO_SELECT,
@@ -312,42 +312,42 @@ def run_simulated_annealing(df_ref, vars_non_nan, output_dir_sa):
             "YEAR_COL": YEAR_COL,
         }
         # Distribute cooling rates fairly across NUM_EXPERIMENTS unique seeds:
-        # experiment i gets cooling_rates[i * n_cr // NUM_EXPERIMENTS]
+        # experiment i gets cooling_rates[i * n_cooling_rates // NUM_EXPERIMENTS]
         cooling_rates = PARAM_GRID["cooling_rate"]
-        n_cr = len(cooling_rates)
+        n_cooling_rates = len(cooling_rates)
         metric = PARAM_GRID["metric"][0]
-        t0 = PARAM_GRID["temp_start"][0]
-        mi = PARAM_GRID["max_iter"][0]
+        temp_start = PARAM_GRID["temp_start"][0]
+        max_iter = PARAM_GRID["max_iter"][0]
         param_set = [
             {
                 "seed": i,
                 "metric": metric,
-                "t0": t0,
-                "cr": cooling_rates[i * n_cr // NUM_EXPERIMENTS],
-                "mi": mi,
+                "t0": temp_start,
+                "cr": cooling_rates[i * n_cooling_rates // NUM_EXPERIMENTS],
+                "mi": max_iter,
             }
             for i in range(NUM_EXPERIMENTS)
         ]
 
         # run jobs in parallel
-        results = []
+        sa_result_dicts = []
         n_workers = min(os.cpu_count() or 1, len(param_set))
 
         with ProcessPoolExecutor(max_workers=n_workers) as ex:
             futures = [
-                ex.submit(run_sa, inputs=constant_inputs, **job) for job in param_set
+                ex.submit(run_sa, inputs=sa_shared_inputs, **job) for job in param_set
             ]
             for i, fut in enumerate(as_completed(futures), start=1):
-                sel_dict = fut.result()
-                results.append(sel_dict)
+                sa_result = fut.result()
+                sa_result_dicts.append(sa_result)
                 logger.info(
-                    f"Experiment {i} done: {sel_dict['optimized_metric']} = {sel_dict['best_score']:.2f}"
+                    f"Experiment {i} done: {sa_result['optimized_metric']} = {sa_result['best_score']:.2f}"
                 )
 
         # save results
-        df_sa_results = pd.DataFrame(results)
+        df_sa_results = pd.DataFrame(sa_result_dicts)
         df_sa_results.to_csv(os.path.join(output_dir_sa, "sa_year_selections.csv"))
-        best = min(results, key=lambda d: d["best_score"])
+        best = min(sa_result_dicts, key=lambda d: d["best_score"])
         logger.info(f"SA run done, best score: {best['best_score']:.2f}")
     else:
         logger.info("##### 2. Skipping Simulated Annealing as per settings... #####")
@@ -394,20 +394,18 @@ def run_hierarchical_brute_force(
 
         # TODO: make sure it's reproducible, e.g., by setting seeds properly
         if SEASONAL:
-            d_means, energy_scores, thresholds_mean, thresholds_energy = (
-                score_tuning_seasonal(
-                    df_ref,
-                    model_years,
-                    TUNING_ITERATIONS,
-                    NUM_TO_SELECT,
-                    vars_non_nan,
-                    rng,
-                    YEAR_COL,
-                    percentile_threshold=P_THRES,
-                )
+            _, _, thresholds_mean, thresholds_energy = score_tuning_seasonal(
+                df_ref,
+                model_years,
+                TUNING_ITERATIONS,
+                NUM_TO_SELECT,
+                vars_non_nan,
+                rng,
+                YEAR_COL,
+                percentile_threshold=P_THRES,
             )
         else:
-            d_means, energy_scores, thresholds_mean, thresholds_energy = score_tuning(
+            _, _, thresholds_mean, thresholds_energy = score_tuning(
                 df_ref,
                 model_years,
                 TUNING_ITERATIONS,
@@ -418,13 +416,13 @@ def run_hierarchical_brute_force(
                 percentile_threshold=P_THRES,
             )
 
-        df_thres = pd.DataFrame(
+        df_thresholds_energy = pd.DataFrame(
             thresholds_energy.items(), columns=["Variable", "Threshold Energy"]
         )
-        df_thres_mean = pd.DataFrame(
+        df_thresholds_mean = pd.DataFrame(
             thresholds_mean.items(), columns=["Variable", "Threshold Mean"]
         )
-        df_thres.merge(df_thres_mean, on="Variable").to_csv(
+        df_thresholds_energy.merge(df_thresholds_mean, on="Variable").to_csv(
             os.path.join(output_dir_hbf, "hbf_thresholds.csv"), index=True
         )
 
@@ -458,7 +456,7 @@ def run_hierarchical_brute_force(
                 True,  # skip_check
             ),
         ) as ex:
-            it = ex.map(
+            hbf_batch_iter = ex.map(
                 run_batch,
                 range(n_batches),
                 [batch_size_hbf] * n_batches,
@@ -467,12 +465,14 @@ def run_hierarchical_brute_force(
                 [SEASONAL] * n_batches,
             )
 
-            for batch_idx, (pass_rec, fail_rec, _pass_years) in enumerate(
-                tqdm(it, total=n_batches)
-            ):
-                hbf_results_fail.extend(fail_rec)
-                if pass_rec:
-                    best = min(pass_rec, key=lambda r: r[score_col])
+            for batch_idx, (
+                batch_pass_records,
+                batch_fail_records,
+                _pass_years,
+            ) in enumerate(tqdm(hbf_batch_iter, total=n_batches)):
+                hbf_results_fail.extend(batch_fail_records)
+                if batch_pass_records:
+                    best = min(batch_pass_records, key=lambda r: r[score_col])
                     hbf_results_pass.append(best)
                     logger.info(
                         f"Batch {batch_idx} done — best {score_col} = {best[score_col]:.4f}"
@@ -500,7 +500,9 @@ def run_hierarchical_brute_force(
             f"Failure distribution:\n{df_hbf_fail.groupby(['fail_check', 'fail_var']).size().sort_values(ascending=False).head(20)}"
         )
 
-        df_hbf_results.to_csv(os.path.join(output_dir_hbf, "hbf_df_pass.csv"), index=True)
+        df_hbf_results.to_csv(
+            os.path.join(output_dir_hbf, "hbf_df_pass.csv"), index=True
+        )
         return df_hbf_results
     else:
         logger.info(
@@ -530,7 +532,7 @@ def score_all_selections(
         "k_medoids": _parse_model_years(df_kmedoids_results.reset_index()),
     }
 
-    all_rows = []
+    scored_rows = []
     for source_name, df_sel in selection_sources.items():
         logger.info(f"Scoring selections from {source_name}...")
         for _, row in df_sel.iterrows():
@@ -560,13 +562,15 @@ def score_all_selections(
                 )[1]
             score_row = {"selection_source": source_name, "model_years": sel_modelyears}
             score_row.update(scores)
-            all_rows.append(score_row)
+            scored_rows.append(score_row)
 
     if RUN_HBF:
         # concat HBF pass selections (pre-calculated)
-        df_all_results = pd.concat([pd.DataFrame(all_rows), df_hbf_results], ignore_index=True)
+        df_all_results = pd.concat(
+            [pd.DataFrame(scored_rows), df_hbf_results], ignore_index=True
+        )
     else:
-        df_all_results = pd.DataFrame(all_rows)
+        df_all_results = pd.DataFrame(scored_rows)
 
     # sort by score
     df_all_results = df_all_results.sort_values(
@@ -635,15 +639,17 @@ def calculate_country_scores(df_all_results, n_workers, output_dir_run):
     row_dicts = df_all_results[["selection_source", "model_years"]].to_dict("records")
 
     with ProcessPoolExecutor(max_workers=n_workers) as ex:
-        nested_rows = list(tqdm(ex.map(process_row, row_dicts), total=len(row_dicts)))
+        country_score_rows_nested = list(
+            tqdm(ex.map(process_row, row_dicts), total=len(row_dicts))
+        )
 
-    country_rows = []
+    country_score_rows = []
     # unpack nested list
-    for sub in nested_rows:
-        country_rows.extend(sub)
+    for sub in country_score_rows_nested:
+        country_score_rows.extend(sub)
 
     df_country_scores = (
-        pd.DataFrame(country_rows)
+        pd.DataFrame(country_score_rows)
         .sort_values("wasserstein_seasonal" if SEASONAL else "wasserstein")
         .reset_index(drop=True)
     )
@@ -666,7 +672,7 @@ def run_evaluation(
     logger.info("##### 8. Performing automatic evaluation... #####")
 
     if SEASONAL:
-        list_cols = [
+        metric_cols = [
             "d_mean_seasonal",
             "qq_mae_seasonal",
             "energy_distance_score_seasonal",
@@ -676,7 +682,7 @@ def run_evaluation(
 
         score_col = "wasserstein_seasonal"
     else:
-        list_cols = [
+        metric_cols = [
             "d_mean",
             "qq_mae",
             "energy_distance_score",
@@ -685,7 +691,7 @@ def run_evaluation(
         ]
         score_col = "wasserstein"
 
-    for col in list_cols:
+    for col in metric_cols:
         col_max = "max_" + col
         df_all_results[col_max] = df_all_results[col].apply(
             lambda x: max(literal_eval(x)) if isinstance(x, str) else max(x)
@@ -794,7 +800,7 @@ def main():
     start_time = datetime.now()
     logger.info(f"Run started at {start_time.strftime('%Y-%m-%d %H:%M:%S')}")
 
-    SA_COOLING_RATES = PARAM_GRID["cooling_rate"]
+    sa_cooling_rates = PARAM_GRID["cooling_rate"]
     logger.info(
         "##### Run settings #####\n"
         f"  MATCH_COUNTRIES    : {MATCH_COUNTRIES}\n"
@@ -803,7 +809,7 @@ def main():
         f"  SEASONAL           : {SEASONAL}\n"
         f"  HBF_ITER_MULTIPLIER: {HBF_ITER_MULTIPLIER}x\n"
         f"  NUM_EXPERIMENTS    : {NUM_EXPERIMENTS}\n"
-        f"  SA_COOLING_RATES   : {SA_COOLING_RATES} (distributed over {NUM_EXPERIMENTS} unique seeds)"
+        f"  SA_COOLING_RATES   : {sa_cooling_rates} (distributed over {NUM_EXPERIMENTS} unique seeds)"
     )
 
     # 1. Load data
@@ -819,6 +825,7 @@ def main():
         df_ref, vars_non_nan, output_dir_sa
     )
     timings["Simulated Annealing"] = datetime.now() - _t0
+    # Use number of iterations across all SA experiments as compute budget for other methods
     sa_total_iters = int(df_sa_results["n_iter"].sum())
 
     # 3. Baseline Random Draws (num draws = sum of SA n_iter)
