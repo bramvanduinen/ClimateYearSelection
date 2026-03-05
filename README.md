@@ -75,7 +75,7 @@ Aggregate raw wind capacity factors from PEOF/PEON zones to country (NUTS0) leve
 ### 01. Build reference dataset
 `run/01_build_dataset.ipynb`
 
-Combines wind, solar, demand and (optionally) hydro into a single daily
+Combines wind, solar, demand and hydro into a single daily
 production-demand dataframe (`df_prod_demand_daily.parquet`) used by all
 downstream steps. Here, enter any changes in installed capacity or demand-temperature assumptions you want to make.
 
@@ -104,6 +104,5 @@ run/                         # pipeline scripts and notebooks
     02_run_selections.py
     03_evaluation_plots.py
     ...
-notebooks/                   # exploratory / analysis notebooks
 ```
 
