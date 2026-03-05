@@ -4,8 +4,12 @@ import os
 import numpy as np
 from matplotlib import cm
 
-YEARS = range(2015, 2045)
-HYDROLOGICAL_YEARS = range(2015, 2044)
+# YEARS = range(2015, 2045)
+YEARS = range(
+    2016, 2047
+)  # updated because hydro data only starts in July 2015, so incomplete hydro year.
+# HYDROLOGICAL_YEARS = range(2015, 2044)
+HYDROLOGICAL_YEARS = range(2016, 2046)
 
 # YEAR_COL = "Hydrological_year"
 

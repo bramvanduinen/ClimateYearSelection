@@ -78,23 +78,23 @@ HBF_ITER_MULTIPLIER = 10
 
 # Raw input files
 DF_DAILY_FNAME = os.path.join(
-    BASE_INPUT, "preprocessed_dataframes/df_daily_all_countries_v3.csv"
+    BASE_INPUT, "preprocessed_dataframes/df_daily_all_countries.csv"
 )
 DF_HOURLY_FNAME = os.path.join(
-    BASE_INPUT, "preprocessed_dataframes/df_hourly_all_countries_v3.csv"
+    BASE_INPUT, "preprocessed_dataframes/df_hourly_all_countries.csv"
 )
 DF_HYDRO_FNAME = os.path.join(
-    BASE_INPUT, "preprocessed_dataframes/df_hydro_prod_all_countries_v1.parquet"
+    BASE_INPUT, "preprocessed_dataframes/df_hydro_prod_all_countries.parquet"
 )
 
 # Combined production + demand dataframe (built in 01_build_dataset.ipynb)
 DF_PROD_DEMAND_FNAME = os.path.join(
     BASE_INPUT,
-    "preprocessed_dataframes/df_prod_demand_daily_all_countries_with_hydro_scaled_demand.parquet",
+    "preprocessed_dataframes/df_prod_demand_daily.parquet",
 )
 DF_PROD_DEMAND_FNAME_REGION = os.path.join(
     BASE_INPUT,
-    "preprocessed_dataframes/df_prod_demand_daily_all_regions_with_hydro_scaled_demand.parquet",
+    "preprocessed_dataframes/df_prod_demand_daily_regional.parquet",
 )
 
 # Variables to match — derived from MATCH_COUNTRIES and HYDRO flag

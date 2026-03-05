@@ -33,11 +33,11 @@ MULTI_COUNTRY = (
     False  # True: panel (b) groups variables by type and sums QQ-MAE across countries
 )
 
-RUNNAME_ = "run_NL_30y_fair_20260225_1243"
-# RUNNAME_ = "run_NL_5y_fair_20260301_1105"
+# RUNNAME_ = "run_NL_30y_fair_20260225_1243"
+RUNNAME_ = "run_NL_5y_fair_20260301_1105"
 # RUNNAME_ = "run_Europe_30y_fair_20260227_1625"
-SELECTED_YEARS = 30
-HYDROLOGICAL_YEARS = range(2016, 2044)
+SELECTED_YEARS = 5
+# HYDROLOGICAL_YEARS = range(2016, 2044)
 
 # Plot layout
 PLOT_ROWS, PLOT_COLS = 3, 2
@@ -161,7 +161,6 @@ df_daily = df_daily.set_index(["model", "Date"])
 
 vars_non_nan = [v for v in VARS_TO_MATCH if not df_daily[v].isna().all()]
 df_ref = df_daily[["Hydrological_year", "Calendar_year"] + VARS_TO_MATCH].reset_index()
-df_ref = df_ref.query("Hydrological_year in @HYDROLOGICAL_YEARS")
 
 PLOT_VARS = vars_non_nan[: PLOT_ROWS * PLOT_COLS]
 PLOT_VAR_LABELS = [pretty_var(v) for v in PLOT_VARS]
@@ -1275,7 +1274,7 @@ plt.scatter(
     zorder=5,
     label="Random sampling (median)",
 )
-
+plt.plot(list(num_years_range), median_scores, color="red")
 plt.axhline(
     df_results["wasserstein"].min(),
     color="green",

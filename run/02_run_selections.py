@@ -148,13 +148,13 @@ def load_data():
 
     df_daily = pd.read_parquet(DF_PROD_DEMAND_FNAME)
     df_daily["Date"] = pd.to_datetime(df_daily["Date"])
-    if HYDRO:
-        # HACK: overwrite default Hydrological years
-        # Hydro data starts only in 2015-07-20
-        HYDROLOGICAL_YEARS = range(2016, 2044)
-    else:
-        # HACK: Should be taken from constants, but not found?
-        HYDROLOGICAL_YEARS = range(2015, 2044)
+    # if HYDRO:
+    #     # HACK: overwrite default Hydrological years
+    #     # Hydro data starts only in 2015-07-20
+    #     HYDROLOGICAL_YEARS = range(2016, 2046)
+    # else:
+    #     # HACK: Should be taken from constants, but not found?
+    #     HYDROLOGICAL_YEARS = range(2016, 2046)
     df_daily = df_daily.query("Hydrological_year in @HYDROLOGICAL_YEARS")
     df_daily = df_daily.set_index(["model", "Date"])
 
@@ -228,7 +228,7 @@ def run_baseline_random_draws(
         for seed in range(NUM_EXPERIMENTS)
     ]
 
-    all_best = []
+    random_draw_results = []
     sort_col = "wasserstein_seasonal" if SEASONAL else "wasserstein"
     with ProcessPoolExecutor(max_workers=n_workers) as ex:
         futures = {
@@ -238,34 +238,34 @@ def run_baseline_random_draws(
             batch_idx = futures[fut]
             best = fut.result()
             if best is not None:
-                all_best.append(best)
+                random_draw_results.append(best)
                 logger.info(
                     f"Batch {batch_idx} done — best {sort_col} = {best[sort_col]:.4f}"
                 )
             else:
                 logger.info(f"Batch {batch_idx} done — no results")
 
-    baseline_random_draws_df = (
-        pd.DataFrame(all_best).sort_values(sort_col).reset_index(drop=True)
+    df_random_draw_results = (
+        pd.DataFrame(random_draw_results).sort_values(sort_col).reset_index(drop=True)
     )
-    baseline_random_draws_df["selection_source"] = "random"
-    baseline_random_draws_df.to_csv(
+    df_random_draw_results["selection_source"] = "random"
+    df_random_draw_results.to_csv(
         os.path.join(output_dir_random, "baseline_random_draw_year_selections.csv")
     )
 
-    overall_best = baseline_random_draws_df.iloc[0]
+    overall_best = df_random_draw_results.iloc[0]
     best_batch = int(
-        baseline_random_draws_df.index[
-            baseline_random_draws_df[sort_col] == overall_best[sort_col]
+        df_random_draw_results.index[
+            df_random_draw_results[sort_col] == overall_best[sort_col]
         ][0]
     )
     logger.info(
         f"Random draws done — best {sort_col} = {overall_best[sort_col]:.4f} "
         f"(batch {best_batch}). "
-        f"{len(baseline_random_draws_df)} results from {num_draws_total} total draws "
+        f"{len(df_random_draw_results)} results from {num_draws_total} total draws "
         f"saved to {output_dir_random}."
     )
-    return baseline_random_draws_df
+    return df_random_draw_results
 
 
 def run_kmedoids(df_ref, vars_non_nan, sa_total_iters, output_dir_kmedoids):
@@ -281,7 +281,7 @@ def run_kmedoids(df_ref, vars_non_nan, sa_total_iters, output_dir_kmedoids):
         f"({sa_total_iters} total fits across {NUM_EXPERIMENTS} batches)... #####"
     )
 
-    df_km = k_medoids_stochastic(
+    df_kmedoids_results = k_medoids_stochastic(
         df=df_ref,
         n_clusters=NUM_TO_SELECT,
         vars_to_match=vars_non_nan,
@@ -292,7 +292,7 @@ def run_kmedoids(df_ref, vars_non_nan, sa_total_iters, output_dir_kmedoids):
         SEASONAL=SEASONAL,
     )
     logger.info(f"K-Medoids completed. Results saved to {output_dir_kmedoids}.")
-    return df_km
+    return df_kmedoids_results
 
 
 def run_simulated_annealing(df_ref, vars_non_nan, output_dir_sa):
@@ -345,15 +345,15 @@ def run_simulated_annealing(df_ref, vars_non_nan, output_dir_sa):
                 )
 
         # save results
-        df_results = pd.DataFrame(results)
-        df_results.to_csv(os.path.join(output_dir_sa, "sa_year_selections.csv"))
+        df_sa_results = pd.DataFrame(results)
+        df_sa_results.to_csv(os.path.join(output_dir_sa, "sa_year_selections.csv"))
         best = min(results, key=lambda d: d["best_score"])
         logger.info(f"SA run done, best score: {best['best_score']:.2f}")
     else:
         logger.info("##### 2. Skipping Simulated Annealing as per settings... #####")
 
         n_workers = os.cpu_count()
-        df_results = _parse_model_years(
+        df_sa_results = _parse_model_years(
             pd.read_csv(
                 os.path.join(
                     BASE_OUTPUT,
@@ -365,12 +365,12 @@ def run_simulated_annealing(df_ref, vars_non_nan, output_dir_sa):
         logger.info(
             f"Simulated Annealing results copied from fallback run: {RUNNAME_SA_FALLBACK}"
         )
-        df_results.to_csv(
+        df_sa_results.to_csv(
             os.path.join(output_dir_sa, "sa_year_selections.csv"), index=True
         )
     logger.info(f"Simulated Annealing results saved to {output_dir_sa}.")
 
-    return df_results, n_workers
+    return df_sa_results, n_workers
 
 
 def run_hierarchical_brute_force(
@@ -437,9 +437,9 @@ def run_hierarchical_brute_force(
         hbf_seeds = list(range(n_batches))
 
         # Each record in pass_rec already contains "model_years" (set inside
-        # score_df / score_df_seasonal), so it lands in df_pass automatically.
-        results_pass = []  # one best-scoring record per batch
-        results_fail = []
+        # score_df / score_df_seasonal), so it lands in df_hbf_results automatically.
+        hbf_results_pass = []  # one best-scoring record per batch
+        hbf_results_fail = []
 
         max_workers = os.cpu_count()
         score_col = "wasserstein_seasonal" if SEASONAL else "wasserstein"
@@ -470,38 +470,38 @@ def run_hierarchical_brute_force(
             for batch_idx, (pass_rec, fail_rec, _pass_years) in enumerate(
                 tqdm(it, total=n_batches)
             ):
-                results_fail.extend(fail_rec)
+                hbf_results_fail.extend(fail_rec)
                 if pass_rec:
                     best = min(pass_rec, key=lambda r: r[score_col])
-                    results_pass.append(best)
+                    hbf_results_pass.append(best)
                     logger.info(
                         f"Batch {batch_idx} done — best {score_col} = {best[score_col]:.4f}"
                     )
                 else:
                     logger.info(f"Batch {batch_idx} done — no passing draws")
 
-        df_pass = (
-            pd.DataFrame(results_pass).sort_values(score_col).reset_index(drop=True)
+        df_hbf_results = (
+            pd.DataFrame(hbf_results_pass).sort_values(score_col).reset_index(drop=True)
         )
-        df_pass["selection_source"] = "HBF"
-        df_fail = pd.DataFrame(results_fail)[["fail_check", "fail_var"]]
+        df_hbf_results["selection_source"] = "HBF"
+        df_hbf_fail = pd.DataFrame(hbf_results_fail)[["fail_check", "fail_var"]]
 
-        skip_rate = len(df_fail) / hbf_iterations
+        skip_rate = len(df_hbf_fail) / hbf_iterations
         logger.info(f"Skip rate: {skip_rate:.3f}")
 
-        if not df_pass.empty:
-            overall_best = df_pass.iloc[0]
+        if not df_hbf_results.empty:
+            overall_best = df_hbf_results.iloc[0]
             logger.info(
                 f"HBF done — best {score_col} = {overall_best[score_col]:.4f} "
-                f"(batch {int(df_pass.index[df_pass[score_col] == overall_best[score_col]][0])})."
+                f"(batch {int(df_hbf_results.index[df_hbf_results[score_col] == overall_best[score_col]][0])})."
             )
 
         logger.info(
-            f"Failure distribution:\n{df_fail.groupby(['fail_check', 'fail_var']).size().sort_values(ascending=False).head(20)}"
+            f"Failure distribution:\n{df_hbf_fail.groupby(['fail_check', 'fail_var']).size().sort_values(ascending=False).head(20)}"
         )
 
-        df_pass.to_csv(os.path.join(output_dir_hbf, "hbf_df_pass.csv"), index=True)
-        return df_pass
+        df_hbf_results.to_csv(os.path.join(output_dir_hbf, "hbf_df_pass.csv"), index=True)
+        return df_hbf_results
     else:
         logger.info(
             "##### 5. Skipping Hierarchical Brute-Force as per settings... #####"
@@ -512,22 +512,22 @@ def run_hierarchical_brute_force(
 def score_all_selections(
     df_ref,
     vars_non_nan,
-    baseline_random_draws_df,
-    df_kmedoids,
+    df_random_draw_results,
+    df_kmedoids_results,
     output_dir_sa,
     output_dir_run,
-    df_pass,
+    df_hbf_results,
 ):
     """6. Scoring all selections."""
     logger = logging.getLogger(__name__)
     logger.info("##### 6. Scoring all selections... #####")
 
     selection_sources = {
-        "random_draws": baseline_random_draws_df,
+        "random_draws": df_random_draw_results,
         "simulated_annealing": _parse_model_years(
             pd.read_csv(os.path.join(output_dir_sa, "sa_year_selections.csv"))
         ),
-        "k_medoids": _parse_model_years(df_kmedoids.reset_index()),
+        "k_medoids": _parse_model_years(df_kmedoids_results.reset_index()),
     }
 
     all_rows = []
@@ -564,7 +564,7 @@ def score_all_selections(
 
     if RUN_HBF:
         # concat HBF pass selections (pre-calculated)
-        df_all_results = pd.concat([pd.DataFrame(all_rows), df_pass], ignore_index=True)
+        df_all_results = pd.concat([pd.DataFrame(all_rows), df_hbf_results], ignore_index=True)
     else:
         df_all_results = pd.DataFrame(all_rows)
 
@@ -815,20 +815,22 @@ def main():
 
     # 2. Simulated Annealing
     _t0 = datetime.now()
-    df_results, n_workers = run_simulated_annealing(df_ref, vars_non_nan, output_dir_sa)
+    df_sa_results, n_workers = run_simulated_annealing(
+        df_ref, vars_non_nan, output_dir_sa
+    )
     timings["Simulated Annealing"] = datetime.now() - _t0
-    sa_total_iters = int(df_results["n_iter"].sum())
+    sa_total_iters = int(df_sa_results["n_iter"].sum())
 
     # 3. Baseline Random Draws (num draws = sum of SA n_iter)
     _t0 = datetime.now()
-    baseline_random_draws_df = run_baseline_random_draws(
+    df_random_draw_results = run_baseline_random_draws(
         model_years, vars_non_nan, sa_total_iters, output_dir_random
     )
     timings["Random Draws"] = datetime.now() - _t0
 
     # 4. K-Medoids (same compute budget as SA)
     _t0 = datetime.now()
-    df_kmedoids = run_kmedoids(
+    df_kmedoids_results = run_kmedoids(
         df_ref, vars_non_nan, sa_total_iters, output_dir_kmedoids
     )
     timings["K-Medoids"] = datetime.now() - _t0
@@ -840,7 +842,7 @@ def main():
         f"({HBF_ITER_MULTIPLIER}x SA total of {sa_total_iters})."
     )
     _t0 = datetime.now()
-    df_pass = run_hierarchical_brute_force(
+    df_hbf_results = run_hierarchical_brute_force(
         df_ref, vars_non_nan, model_years, rng, output_dir_hbf, hbf_iterations
     )
     timings["HBF"] = datetime.now() - _t0
@@ -849,11 +851,11 @@ def main():
     df_all_results = score_all_selections(
         df_ref,
         vars_non_nan,
-        baseline_random_draws_df,
-        df_kmedoids,
+        df_random_draw_results,
+        df_kmedoids_results,
         output_dir_sa,
         output_dir_run,
-        df_pass,
+        df_hbf_results,
     )
 
     # 7. Country-level scores

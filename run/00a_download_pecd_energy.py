@@ -9,8 +9,8 @@ from cluster_weather_years.constants import BASE_INPUT
 # %%
 # build requests and output dirs
 dataset = "sis-energy-pecd"
-yearrange = range(2015, 2045)
-
+# yearrange = range(2015, 2045)
+yearrange = range(2016, 2047)  # hydrological years 2016-2045 covered
 models = [
     "cmcc_cm2_sr5",
     "ec_earth3",
@@ -58,7 +58,7 @@ output_dir_solar = Path(f"{BASE_INPUT}/pecd_data/energy/solar")
 output_dir_solar.mkdir(exist_ok=True)
 output_dir_temp = Path(f"{BASE_INPUT}/pecd_data/energy/temp")
 output_dir_temp.mkdir(exist_ok=True)
-output_dir_hydro = Path(f"{BASE_INPUT}/pecd_data/energy/hydro")
+output_dir_hydro = Path(f"{BASE_INPUT}/pecd_data/energy/hydro_weekly")
 output_dir_hydro.mkdir(exist_ok=True)
 
 client = cdsapi.Client()
