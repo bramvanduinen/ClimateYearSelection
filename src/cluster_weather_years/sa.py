@@ -7,7 +7,6 @@ import pandas as pd
 from tqdm import tqdm
 
 from cluster_weather_years.scores import (
-    ad_total,
     wasserstein_score,
     wasserstein_seasonal_score,
 )
@@ -99,7 +98,7 @@ def simulated_annealing_selection(
                 k = int(rng.integers(2, 4))  # 2 or 3
 
         # TODO: Tweak with this. Does this swap enough/too much?
-        elif n_select > 10:  # built on n_select = 30
+        else:  # built on n_select = 30
             if u < 0.5:
                 k = int(rng.integers(1, 4))  # 1, 2, or 3
             elif u < 0.85:

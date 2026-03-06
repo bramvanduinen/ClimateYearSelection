@@ -12,8 +12,6 @@ from cluster_weather_years.constants import (
     BASE_OUTPUT,
     DROUGHT_MIN_DURATION,
     DROUGHT_PERCENTILE,
-    # MATCH_COUNTRIES,
-    # VARS_TO_MATCH,
 )
 from cluster_weather_years.helper_functions import (
     build_df_from_modelyears,
@@ -171,17 +169,17 @@ def plot_lollipop_by_country(
 
 
 ### Physical Evaluation ###
-def compute_monthly_mean(df, vars):
+def compute_monthly_mean(df, variables):
     """Compute monthly means for given variables."""
     df = df.set_index("Date")
-    monthly_means = df[vars].groupby(df.index.month).mean()
+    monthly_means = df[variables].groupby(df.index.month).mean()
     monthly_means.index.name = "Month"
     return monthly_means
 
 
-def compute_correlation_matrix(df, vars):
+def compute_correlation_matrix(df, variables):
     """Compute correlation matrix for variables."""
-    return df[vars].corr()
+    return df[variables].corr()
 
 
 def compute_drought_statistics(df, country, ref_percentiles=None):
@@ -230,7 +228,7 @@ def compute_drought_statistics(df, country, ref_percentiles=None):
     return percentiles, stats
 
 
-def perform_physical_evaluation(df_results, df_ref, countries, vars, save_dir=None):
+def perform_physical_evaluation(df_results, df_ref, countries, variables, save_dir=None):
     """
     Perform comprehensive physical evaluation for all countries in countries.
     Creates all plots and analyses for seasonal patterns, correlations, and drought metrics.
@@ -242,7 +240,7 @@ def perform_physical_evaluation(df_results, df_ref, countries, vars, save_dir=No
         print(f"{'=' * 60}\n")
 
         # --- Setup country-specific variables ---
-        country_vars = [var for var in vars if var.startswith(country + "_")]
+        country_vars = [var for var in variables if var.startswith(country + "_")]
         country_prod_vars = [var for var in country_vars if "prod" in var]
         country_vars.append(f"{country}_total_renewable")
         df_ref[f"{country}_total_renewable"] = df_ref[
@@ -262,7 +260,7 @@ def perform_physical_evaluation(df_results, df_ref, countries, vars, save_dir=No
         dfs_drought_stats = {}
 
         for i, row in df_results.iterrows():
-            if type(row["model_years"]) == str:
+            if isinstance(row["model_years"], str):
                 sel_modelyears = literal_eval(row["model_years"])
             else:
                 sel_modelyears = row["model_years"]
@@ -295,8 +293,7 @@ def perform_physical_evaluation(df_results, df_ref, countries, vars, save_dir=No
         )
 
         best_idx = df_results.sort_values("wasserstein_seasonal").index[0]
-        # TODO: implement proper handling of model_years as tuples everywhere to avoid this hack
-        if type(df_results.loc[best_idx, "model_years"]) == str:
+        if isinstance(df_results.loc[best_idx, "model_years"], str):
             modelyears_best = literal_eval(df_results.loc[best_idx, "model_years"])
         else:
             modelyears_best = df_results.loc[best_idx, "model_years"]
@@ -309,8 +306,8 @@ def perform_physical_evaluation(df_results, df_ref, countries, vars, save_dir=No
         sorted_indices = df_results.sort_values("wasserstein_seasonal").index
         median_idx = sorted_indices[len(sorted_indices) // 2]
 
-        # TODO: implement proper handling of model_years as tuples everywhere to avoid this hack
-        if type(df_results.loc[median_idx, "model_years"]) == str:
+        # TODO: implement proper handling of model_years as tuples everywhere
+        if isinstance(df_results.loc[median_idx, "model_years"], str):
             modelyears_median = literal_eval(df_results.loc[median_idx, "model_years"])
         else:
             modelyears_median = df_results.loc[median_idx, "model_years"]

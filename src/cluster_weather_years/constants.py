@@ -13,14 +13,6 @@ HYDROLOGICAL_YEARS = range(2016, 2046)
 
 # YEAR_COL = "Hydrological_year"
 
-THRES_HDD = 12.3  # values for Austria, taken from Katharina Gruber. Note: not used
-THRES_CDD = 25.5  # values for Austria, taken from Katharina Gruber. Note: not used
-
-WINDOW_ROLLING = 30  # days rolling mean for climatology. Note: not used
-MIN_WINDOW_ROLLING = (
-    7  # minimum amount of days for rolling mean to be non-nan. Note: not used
-)
-
 # quantiles for QQ-comparison
 dense_low = np.linspace(0.005, 0.05, 9, endpoint=False)
 coarse = np.linspace(0.05, 0.95, 91)
@@ -70,8 +62,6 @@ COUNTRIES = [
 
 HYDRO_VARS = ["HRO", "HRG", "HPO"]
 
-
-INPUT_DIRS = [INPUT_DIR_WIND, INPUT_DIR_SOLAR, INPUT_DIR_TEMP]
 
 # Renewable drought settings (only used for physical evaluation)
 DROUGHT_PERCENTILE = 5  # Below P5 = low renewable day

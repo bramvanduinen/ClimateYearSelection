@@ -1,10 +1,6 @@
 # %%
-import itertools
 import os
-import pickle
-import random
 from concurrent.futures import ProcessPoolExecutor
-from math import comb
 
 import numpy as np
 import pandas as pd
@@ -13,9 +9,6 @@ from scipy.stats import energy_distance
 from tqdm import tqdm
 
 from cluster_weather_years.constants import (
-    BASE_OUTPUT,
-    HYDROLOGICAL_YEARS,
-    MODELS,
     PROBS,
     SEASONS,
 )

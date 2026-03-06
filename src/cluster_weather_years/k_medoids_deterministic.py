@@ -1,4 +1,4 @@
-"""K-Medoids clustering for weather year selection."""
+"""K-Medoids clustering for weather year selection. Deterministic version, with fixed initialisation so just one iteration."""
 
 # %%
 import matplotlib.pyplot as plt
@@ -9,8 +9,6 @@ from sklearn.decomposition import PCA
 from sklearn.preprocessing import StandardScaler
 from sklearn_extra.cluster import KMedoids
 
-# from cluster_weather_years.functions import build_df, plot_clim_per_cluster
-# from cluster_weather_years.constants import YEAR_COL
 from cluster_weather_years.constants import SEASONS
 
 
@@ -57,8 +55,7 @@ def k_medoids_clustering(
                 ["mean", "var"]
             )
             season_stats.columns = [
-                f"{var}_{stat}_{season_name}"
-                for var, stat in season_stats.columns
+                f"{var}_{stat}_{season_name}" for var, stat in season_stats.columns
             ]
             season_frames.append(season_stats)
         yearly_stats = pd.concat(season_frames, axis=1).reset_index()
@@ -114,7 +111,6 @@ def analyze_kmedoids(kmed, stats_scaled, medoid_idx, medoid_years, output_dir):
     plt.legend()
     plt.savefig(f"{output_dir}/kmedoids_pca_plot.png")
 
-    # Print PCA loadings
     loadings = pd.DataFrame(
         pca.components_.T,  # shape (n_features, n_components)
         index=medoid_years.columns[
@@ -122,8 +118,6 @@ def analyze_kmedoids(kmed, stats_scaled, medoid_idx, medoid_years, output_dir):
         ],  # exclude 'model', 'Hydrological_year', 'cluster'
         columns=["PC1", "PC2"],
     ).round(3)
-    # print("PCA Loadings:\n", loadings)
-    # print("\nExplained Variance Ratio:", pca.explained_variance_ratio_.round(3))
     loadings.to_csv(f"{output_dir}/kmedoids_pca_loadings.csv")
 
 

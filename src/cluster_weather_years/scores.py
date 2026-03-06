@@ -1,12 +1,10 @@
-import warnings
-from typing import Optional, Sequence, Tuple
+from typing import Sequence, Tuple
 
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import seaborn as sns
 from ot import sliced_wasserstein_distance
-from scipy.stats import anderson_ksamp, ks_2samp
 
 from cluster_weather_years.constants import PROBS, SEASONS
 
@@ -114,101 +112,6 @@ def qq_univariate_rmse(df_daily, datasets, columns):
                 }
             )
     return pd.DataFrame(rows)
-
-
-#### Below: unused, might be deleted later ####
-
-
-def ks_total(
-    df: pd.DataFrame,
-    combos: Sequence[Tuple[str, int]],
-    variables: Sequence[str],
-    model_col: str = "model",
-    year_col: str = "year",
-) -> float:
-    """Unweighted Kolmogorov–Smirnov score (lower ⇒ closer)."""
-    idx_sel = build_selection_mask(df, combos, model_col=model_col, year_col=year_col)
-    sub = df.loc[idx_sel, variables]
-    return float(
-        sum(
-            ks_2samp(df[v].to_numpy(), sub[v].to_numpy(), method="auto").statistic
-            for v in variables
-        )
-    )
-
-
-def _ad_stat(a: np.ndarray, b: np.ndarray) -> float:
-    with warnings.catch_warnings():
-        warnings.filterwarnings(
-            "ignore",
-            message=r"p-value (?:capped|floored).*",
-            category=UserWarning,
-        )
-        return anderson_ksamp([a, b]).statistic
-
-
-def ad_total(
-    df: pd.DataFrame,
-    combos: Sequence[Tuple[str, int]],
-    variables: Sequence[str],
-    model_col: str = "model",
-    year_col: str = "year",
-) -> float:
-    """Anderson–Darling k-sample score (lower ⇒ closer; tail-weighted)."""
-    idx_sel = build_selection_mask(df, combos, model_col=model_col, year_col=year_col)
-    sub = df.loc[idx_sel, variables]
-    full_disjoint = df.loc[~df.index.isin(sub.index), variables]
-    return float(
-        sum(_ad_stat(full_disjoint[v].to_numpy(), sub[v].to_numpy()) for v in variables)
-    )
-
-
-def ad_seasonal(
-    df: pd.DataFrame,
-    combos: Sequence[Tuple[str, int]],
-    variables: Sequence[str],
-    model_col: str = "model",
-    year_col: str = "year",
-    date_col: str = "Date",
-) -> float:
-    """
-    Compute Anderson–Darling k-sample statistics for each season separately.
-
-    Args:
-        df: Input DataFrame with datetime column.
-        combos: Tuples of (model, year) for selection.
-        variables: Variables to evaluate.
-        model_col: Column with model identifiers.
-        year_col: Column with year identifiers.
-        date_col: Column with datetime values.
-
-    Returns:
-        AD Scores summed over variable and seasons.
-    """
-    idx_sel = build_selection_mask(df, combos, model_col=model_col, year_col=year_col)
-    sub = df.loc[idx_sel, [date_col] + variables]
-    full_disjoint = df.loc[~df.index.isin(sub.index), [date_col] + variables]
-
-    # Ensure datetime
-    sub[date_col] = pd.to_datetime(sub[date_col])
-    full_disjoint[date_col] = pd.to_datetime(full_disjoint[date_col])
-
-    # Add seasons
-    sub["season"] = sub[date_col].dt.month % 12 // 3 + 1
-    full_disjoint["season"] = full_disjoint[date_col].dt.month % 12 // 3 + 1
-    season_map = {1: "DJF", 2: "MAM", 3: "JJA", 4: "SON"}
-
-    result = 0
-
-    # Seasonal distributions
-    for v in variables:
-        for s_code, s_name in season_map.items():
-            sub_s = sub.loc[sub["season"] == s_code, v].to_numpy()
-            full_s = full_disjoint.loc[full_disjoint["season"] == s_code, v].to_numpy()
-            if len(sub_s) > 0 and len(full_s) > 0:
-                result += float(_ad_stat(full_s, sub_s))
-
-    return result
 
 
 # %% Visualization functions

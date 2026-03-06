@@ -43,9 +43,9 @@ BASE_OUTPUT = "/path/to/outputs/"
 
 Also verify that `HYDROLOGICAL_YEARS` and `MODELS` match your dataset.
 
-**2. `run/RUN_SETTINGS.py`**
+**2. `run/RUN_SETTINGS_example.py`**
 
-All run-specific settings live here. The main ones to configure:
+To run, change name to RUN_SETTINGS.py. All run-specific settings live here. The main ones to configure:
 
 | Setting | Description |
 |---|---|

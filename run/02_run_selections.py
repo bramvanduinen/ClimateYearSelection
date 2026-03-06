@@ -480,9 +480,9 @@ def run_hierarchical_brute_force(
                 else:
                     logger.info(f"Batch {batch_idx} done — no passing draws")
 
-        df_hbf_results = (
-            pd.DataFrame(hbf_results_pass).sort_values(score_col).reset_index(drop=True)
-        )
+        df_hbf_results = pd.DataFrame(hbf_results_pass)
+        if not df_hbf_results.empty:
+            df_hbf_results = df_hbf_results.sort_values(score_col).reset_index(drop=True)
         df_hbf_results["selection_source"] = "HBF"
         df_hbf_fail = pd.DataFrame(hbf_results_fail)[["fail_check", "fail_var"]]
 
@@ -697,7 +697,7 @@ def run_evaluation(
             lambda x: max(literal_eval(x)) if isinstance(x, str) else max(x)
         )
 
-    # luck analaysis: how does median score compare to best score
+    # luck analysis: how does median score compare to best score
     df_luck = (
         df_all_results.groupby("selection_source")[score_col]
         .agg(
