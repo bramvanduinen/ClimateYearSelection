@@ -1,12 +1,7 @@
 # %%
-import os
-from concurrent.futures import ProcessPoolExecutor
-
 import numpy as np
-import pandas as pd
 from ot import sliced_wasserstein_distance
 from scipy.stats import energy_distance
-from tqdm import tqdm
 
 from cluster_weather_years.constants import (
     PROBS,
