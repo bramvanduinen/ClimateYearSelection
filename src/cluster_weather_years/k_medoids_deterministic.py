@@ -1,4 +1,7 @@
-"""K-Medoids clustering for weather year selection. Deterministic version, with fixed initialisation so just one iteration."""
+"""K-Medoids clustering for weather year selection. Deterministic version, with fixed initialisation so just one iteration.
+NOTE: Legacy version. Not used currently, because it's not a fair comparison with the other methods that are intialised often.
+It does however match 'current practice' approaches that use K-Medoids with fixed initialisation, so it may be useful for benchmarking against that.
+"""
 
 # %%
 import matplotlib.pyplot as plt
