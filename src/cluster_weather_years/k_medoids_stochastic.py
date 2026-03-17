@@ -23,7 +23,7 @@ log = logging.getLogger(__name__)
 
 # Worker function
 def _run_kmedoids_batch(args):
-    """Fit KMedoids *batch_size* times and return the single best result dict.
+    """Fit KMedoids *batch_size* times and return the best result and median score.
 
     Parameters
     ----------
@@ -33,8 +33,8 @@ def _run_kmedoids_batch(args):
 
     Returns
     -------
-    dict or None
-        Best result dict for this batch, or None if batch_size == 0.
+    tuple[dict, float]
+        (best_result dict, median_score) for this batch.
     """
     (
         batch_seed,
@@ -54,6 +54,7 @@ def _run_kmedoids_batch(args):
     rng = np.random.default_rng(batch_seed)
     best_score = float("inf")
     best_result: Optional[dict] = None
+    all_scores: list[float] = []
 
     for _ in range(batch_size):
         run_seed = int(rng.integers(0, 2**31))
@@ -73,6 +74,7 @@ def _run_kmedoids_batch(args):
             year_col=year_col,
             n_projections=50,
         )
+        all_scores.append(float(score))
 
         if score < best_score:
             best_score = float(score)
@@ -85,7 +87,8 @@ def _run_kmedoids_batch(args):
                 "selection_source": "k_medoids_stochastic",
             }
 
-    return best_result
+    median_score = float(np.median(all_scores))
+    return best_result, median_score
 
 
 def k_medoids_stochastic(
@@ -178,15 +181,16 @@ def k_medoids_stochastic(
             for batch_seed, args in enumerate(job_args)
         }
         for fut in as_completed(futures):
-            result = fut.result()
-            if result is not None:
-                all_best.append(result)
-                log.info(
-                    "Batch %d done — best %s = %.4f",
-                    futures[fut],
-                    "wasserstein_seasonal" if SEASONAL else "wasserstein",
-                    result["wasserstein_seasonal" if SEASONAL else "wasserstein"],
-                )
+            result, median_score = fut.result()
+            result["median_score"] = median_score
+            all_best.append(result)
+            log.info(
+                "Batch %d done — best %s = %.4f, median = %.4f",
+                futures[fut],
+                "wasserstein_seasonal" if SEASONAL else "wasserstein",
+                result["wasserstein_seasonal" if SEASONAL else "wasserstein"],
+                median_score,
+            )
 
     # Collect, sort by score, save
     score_key = "wasserstein_seasonal" if SEASONAL else "wasserstein"

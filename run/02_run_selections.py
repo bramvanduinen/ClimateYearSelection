@@ -175,13 +175,14 @@ def load_data():
 
 
 def _draw_random_batch(args):
-    """Draw and score a batch of random year selections; return the single best result."""
+    """Draw and score a batch of random year selections; return the best result and median score."""
     seed, model_years, batch_size, num_to_select, vars_non_nan = args
     rng = np.random.default_rng(seed)
     draws = draw_random_modelyears(model_years, batch_size, num_to_select, rng)
     score_key = "wasserstein_seasonal" if SEASONAL else "wasserstein"
     best_score = float("inf")
     best_result = None
+    all_scores: list[float] = []
     for model_years_draw in draws:
         score = (
             wasserstein_seasonal_score(
@@ -200,10 +201,12 @@ def _draw_random_batch(args):
                 n_projections=50,
             )
         )
+        all_scores.append(float(score))
         if score < best_score:
             best_score = score
             best_result = {"model_years": model_years_draw, score_key: score}
-    return best_result
+    median_score = float(np.median(all_scores))
+    return best_result, median_score
 
 
 def run_baseline_random_draws(
@@ -239,11 +242,12 @@ def run_baseline_random_draws(
         }
         for fut in as_completed(futures):
             batch_idx = futures[fut]
-            best = fut.result()
+            best, median_score = fut.result()
             if best is not None:
+                best[f"{sort_col}_median"] = median_score
                 random_draw_results.append(best)
                 logger.info(
-                    f"Batch {batch_idx} done — best {sort_col} = {best[sort_col]:.4f}"
+                    f"Batch {batch_idx} done — best {sort_col} = {best[sort_col]:.4f}, median = {median_score:.4f}"
                 )
             else:
                 logger.info(f"Batch {batch_idx} done — no results")
@@ -476,9 +480,14 @@ def run_hierarchical_brute_force(
                 hbf_results_fail.extend(batch_fail_records)
                 if batch_pass_records:
                     best = min(batch_pass_records, key=lambda r: r[score_col])
+                    median = float(
+                        np.median([r[score_col] for r in batch_pass_records])
+                    )
+                    best[f"{score_col}_median"] = median
+
                     hbf_results_pass.append(best)
                     logger.info(
-                        f"Batch {batch_idx} done — best {score_col} = {best[score_col]:.4f}"
+                        f"Batch {batch_idx} done — best {score_col} = {best[score_col]:.4f}, median = {median:.4f}"
                     )
                 else:
                     logger.info(f"Batch {batch_idx} done — no passing draws")
