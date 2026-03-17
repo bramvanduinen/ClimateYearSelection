@@ -7,11 +7,11 @@ from cluster_weather_years.constants import (
     PROBS,
     SEASONS,
 )
+from cluster_weather_years.cost_functions import wasserstein_seasonal_score
 from cluster_weather_years.helper_functions import (
     build_df_from_modelyears,
     draw_random_modelyears,
 )
-from cluster_weather_years.scores import wasserstein_seasonal_score
 
 
 def build_random_df(df_ref, model_years, num_to_select, rng, year_col):

@@ -35,11 +35,15 @@ from RUN_SETTINGS import (
 from tqdm import tqdm
 
 from cluster_weather_years.constants import BASE_OUTPUT, HYDROLOGICAL_YEARS, MODELS
+from cluster_weather_years.cost_functions import (
+    wasserstein_score,
+    wasserstein_seasonal_score,
+)
 from cluster_weather_years.evaluation import (
     perform_physical_evaluation,
     plot_lollipop_by_country,
-    plot_results_with_pareto,
 )
+from cluster_weather_years.evaluation_plot_helpers import plot_results_with_pareto
 from cluster_weather_years.helper_functions import (
     build_df_from_modelyears,
     draw_random_modelyears,
@@ -54,7 +58,6 @@ from cluster_weather_years.hierarchical_brute_force import (
 )
 from cluster_weather_years.k_medoids_stochastic import k_medoids_stochastic
 from cluster_weather_years.sa import run_sa
-from cluster_weather_years.scores import wasserstein_score, wasserstein_seasonal_score
 
 # pylint: enable=import-error
 
@@ -482,7 +485,9 @@ def run_hierarchical_brute_force(
 
         df_hbf_results = pd.DataFrame(hbf_results_pass)
         if not df_hbf_results.empty:
-            df_hbf_results = df_hbf_results.sort_values(score_col).reset_index(drop=True)
+            df_hbf_results = df_hbf_results.sort_values(score_col).reset_index(
+                drop=True
+            )
         df_hbf_results["selection_source"] = "HBF"
         df_hbf_fail = pd.DataFrame(hbf_results_fail)[["fail_check", "fail_var"]]
 

@@ -13,7 +13,10 @@ from sklearn.preprocessing import StandardScaler
 from sklearn_extra.cluster import KMedoids
 
 from cluster_weather_years.constants import SEASONS
-from cluster_weather_years.scores import wasserstein_score, wasserstein_seasonal_score
+from cluster_weather_years.cost_functions import (
+    wasserstein_score,
+    wasserstein_seasonal_score,
+)
 
 log = logging.getLogger(__name__)
 
@@ -83,6 +86,7 @@ def _run_kmedoids_batch(args):
             }
 
     return best_result
+
 
 def k_medoids_stochastic(
     df: pd.DataFrame,

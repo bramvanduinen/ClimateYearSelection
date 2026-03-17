@@ -6,7 +6,7 @@ import numpy as np
 import pandas as pd
 from tqdm import tqdm
 
-from cluster_weather_years.scores import (
+from cluster_weather_years.cost_functions import (
     wasserstein_score,
     wasserstein_seasonal_score,
 )

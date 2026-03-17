@@ -1,3 +1,7 @@
+"""
+NOTE: This module contains cost functions for optimization. Evaluation scores are in evaluation_scores.py
+"""
+
 from typing import Sequence, Tuple
 
 import matplotlib.pyplot as plt
@@ -84,7 +88,11 @@ def wasserstein_seasonal_score(
     return max(wasserstein_seasonal)
 
 
+# %%
+
+
 # TODO: df-based, might want to rewrite this later
+# NOTE: Unused I think, so can probably be deleted.
 def qq_univariate_rmse(df_daily, datasets, columns):
     """
     Compute QQ-based metrics for one or many datasets vs the full df_daily.
@@ -115,6 +123,7 @@ def qq_univariate_rmse(df_daily, datasets, columns):
 
 
 # %% Visualization functions
+# NOTE: Unused currently, superseded by evaluation_plot_helpers.py
 
 
 def ecdf_comparison(df_daily, datasets, columns):

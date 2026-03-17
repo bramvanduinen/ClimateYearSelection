@@ -5,6 +5,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import seaborn as sns
+from ot import sliced_wasserstein_distance
 
 # fmt: off
 # pylint: disable=import-error
@@ -12,6 +13,7 @@ from cluster_weather_years.constants import (
     BASE_OUTPUT,
     DROUGHT_MIN_DURATION,
     DROUGHT_PERCENTILE,
+    PROBS,
 )
 from cluster_weather_years.helper_functions import (
     build_df_from_modelyears,
@@ -19,78 +21,234 @@ from cluster_weather_years.helper_functions import (
 
 # pylint: enable=import-error
 # fmt: on
-### Statistical Evaluation ###
+### Statistical Evaluation, functions used in 03_evaluation_plots.py for paper figures###
 
 
-def calc_pareto_mask(df, cols):
-    """Mask for Pareto-optimal points in the dataframe based on specified columns."""
-    X = df.loc[:, cols].to_numpy()
-    n = len(df)
-    m = np.ones(n, dtype=bool)
-    for i in range(n):
-        if not m[i]:
-            continue
-        # point j dominates i if j <= i in all and < in at least one (lower=better)
-        dom_i = np.all(X <= X[i], axis=1) & np.any(X < X[i], axis=1)
-        if dom_i.any():
-            m[i] = False
-    return m
+# ─────────────────────────────────────────────────────────────────────────────
+# Helpers for evaluation scoring metrics
+# ─────────────────────────────────────────────────────────────────────────────
 
 
-def plot_results_with_pareto(df_results, metric_1, metric_2, save_dir=None):
-    """Plot results with Pareto front highlighted."""
-    pareto_mask_2d = calc_pareto_mask(df_results, cols=(metric_1, metric_2))
-    pareto_front_2d = df_results.loc[pareto_mask_2d]
+def _filter_season(df: pd.DataFrame, months) -> pd.DataFrame:
+    """Keep only rows whose Date month is in `months`."""
+    return df[pd.to_datetime(df["Date"]).dt.month.isin(months)]
 
-    # Count composition of Pareto front
-    pareto_composition = pareto_front_2d["selection_source"].value_counts().to_dict()
-    pareto_label_parts = [
-        f"{count}x {source}" for source, count in pareto_composition.items()
-    ]
-    pareto_label = "Pareto front: " + ", ".join(pareto_label_parts)
 
-    # Create scatter plot with proper labels per selection source
-    fig, ax = plt.subplots(figsize=(8, 6))
+def _ecdf(values):
+    """Empirical CDF: returns (sorted_x, cumulative_probability)."""
+    x = np.sort(np.asarray(values))
+    y = np.arange(1, len(x) + 1) / len(x)
+    return x, y
 
-    plt.scatter(
-        pareto_front_2d[metric_1], pareto_front_2d[metric_2], c="k", label=pareto_label
+
+def _qq_diff_and_mae(ref_values, sel_values, quantiles=PROBS):
+    """Quantile differences and their mean absolute error between two series."""
+    q_ref = np.quantile(ref_values.dropna().values, quantiles)
+    q_sel = np.quantile(sel_values.dropna().values, quantiles)
+    qq_diff = q_sel - q_ref
+    return qq_diff, float(np.mean(np.abs(qq_diff)))
+
+
+def _corr_deviations(corr_sub: pd.DataFrame, corr_ref: pd.DataFrame):
+    """Mean and max absolute correlation deviation (strict lower triangle only)."""
+    mask_lower = np.tril(np.ones(corr_ref.shape, dtype=bool), k=-1)
+    abs_dev = np.abs((corr_sub - corr_ref).to_numpy()[mask_lower])
+    return float(np.mean(abs_dev)), float(np.max(abs_dev))
+
+
+def _compute_swd(X_sub, X_ref, n_projections: int = 200, seed: int = 42) -> float:
+    """Sliced Wasserstein Distance between two multivariate sample arrays."""
+    return float(
+        sliced_wasserstein_distance(
+            X_sub, X_ref, n_projections=n_projections, seed=seed
+        )
     )
 
-    for source in df_results["selection_source"].unique():
-        mask = df_results["selection_source"] == source
-        if source == "k_medoids":
-            marker = "x"
-            size = 30
-        else:
-            marker = "o"
-            size = 10
-        ax.scatter(
-            df_results.loc[mask, metric_1],
-            df_results.loc[mask, metric_2],
-            label=source,
-            marker=marker,
-            s=size,
-            alpha=0.6,
-        )
 
-    ax.set_xlim(0, None)
-    ax.set_ylim(0, None)
-    # ax.set_xlabel("SWD Worst Season (lower is better) [-]")
-    # ax.set_ylabel("SWD Overall (lower is better) [-]")
-    ax.set_xlabel(f"{metric_1} (lower is better)")
-    ax.set_ylabel(f"{metric_2} (lower is better)")
-    ax.legend()
-    ax.grid(True, alpha=0.3)
-    plt.tight_layout()
-    # plt.show()
-    if save_dir is not None:
-        plt.savefig(f"{save_dir}/pareto_front_{metric_1}_{metric_2}.png", dpi=150)
+# ─────────────────────────────────────────────────────────────────────────────
+# Main metric computation
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def compute_all_metrics(
+    active_subsets: dict,
+    df_ref: pd.DataFrame,
+    vars_non_nan: list,
+    seasons: dict,
+    n_projections: int = 200,
+    seed: int = 42,
+) -> dict:
+    """Compute SWD, QQ-MAE, and correlation deviations for all active subsets.
+
+    Parameters
+    ----------
+    active_subsets : dict
+        {name: {"df": DataFrame, "modelyears": ...}} — filtered subsets to evaluate.
+    df_ref : DataFrame
+        Full reference dataset (all model-years).
+    vars_non_nan : list[str]
+        Variable columns to include in scoring.
+    seasons : dict
+        {season_name: list_of_months} — e.g. {"DJF": [12, 1, 2], "JJA": [6, 7, 8]}.
+    n_projections : int
+        Number of random projections for SWD (higher = more accurate, slower).
+    seed : int
+        RNG seed for SWD reproducibility.
+
+    Returns
+    -------
+    dict
+        Dictionary containing all computed metrics.
+    """
+    print("Computing evaluation metrics...")
+    X_ref_all = df_ref[vars_non_nan].to_numpy()
+
+    # Annual SWD
+    swd_annual = {
+        name: _compute_swd(
+            info["df"][vars_non_nan].to_numpy(), X_ref_all, n_projections, seed
+        )
+        for name, info in active_subsets.items()
+    }
+
+    # Seasonal SWD
+    swd_seasonal = {}
+    for season_name, months in seasons.items():
+        X_ref_s = _filter_season(df_ref, months)[vars_non_nan].to_numpy()
+        swd_seasonal[season_name] = {
+            name: _compute_swd(
+                _filter_season(info["df"], months)[vars_non_nan].to_numpy(),
+                X_ref_s,
+                n_projections,
+                seed,
+            )
+            for name, info in active_subsets.items()
+        }
+
+    # SSWD = max seasonal SWD per method
+    sswd = {
+        name: max(swd_seasonal[s][name] for s in seasons) for name in active_subsets
+    }
+
+    # Annual QQ-MAE per variable
+    qq_mae_annual = {
+        name: {v: _qq_diff_and_mae(df_ref[v], info["df"][v])[1] for v in vars_non_nan}
+        for name, info in active_subsets.items()
+    }
+
+    # Seasonal QQ-MAE per variable
+    qq_mae_seasonal = {}
+    for season_name, months in seasons.items():
+        df_ref_s = _filter_season(df_ref, months)
+        qq_mae_seasonal[season_name] = {
+            name: {
+                v: _qq_diff_and_mae(df_ref_s[v], _filter_season(info["df"], months)[v])[
+                    1
+                ]
+                for v in vars_non_nan
+            }
+            for name, info in active_subsets.items()
+        }
+
+    # Correlation deviations: annual + per season
+    corr_ref_annual = df_ref[vars_non_nan].corr()
+    corr_dev = {}
+    for name, info in active_subsets.items():
+        mean_ann, _ = _corr_deviations(info["df"][vars_non_nan].corr(), corr_ref_annual)
+        corr_dev[name] = {"Annual": mean_ann}
+        for season_name, months in seasons.items():
+            df_ref_s = _filter_season(df_ref, months)
+            df_sub_s = _filter_season(info["df"], months)
+            mean_s, _ = _corr_deviations(
+                df_sub_s[vars_non_nan].corr(), df_ref_s[vars_non_nan].corr()
+            )
+            corr_dev[name][season_name] = mean_s
+
+    print(
+        f"All metrics computed ✓  ({len(vars_non_nan)} vars, n_projections={n_projections}, seed={seed})"
+    )
+    return {
+        "swd_annual": swd_annual,
+        "swd_seasonal": swd_seasonal,
+        "sswd": sswd,
+        "qq_mae_annual": qq_mae_annual,
+        "qq_mae_seasonal": qq_mae_seasonal,
+        "corr_dev": corr_dev,
+        "season_list": list(seasons.keys()),
+    }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Score tables, for plotting and tables in paper
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def build_score_tables(metrics: dict, active_subsets: dict):
+    """Build per-season detail tables and a worst-season summary table.
+
+    Returns
+    -------
+    seasonal_dfs : dict
+        {season_name: DataFrame} with per-season scores.
+    df_scores_summary : DataFrame
+        Worst-season summary across all methods.
+    """
+    # Per-season detail tables
+    seasonal_dfs = {}
+    for season_name in metrics["season_list"]:
+        rows = [
+            {
+                "subset": name,
+                "mean_qq_mae": float(
+                    np.mean(
+                        list(metrics["qq_mae_seasonal"][season_name][name].values())
+                    )
+                ),
+                "max_qq_mae": float(
+                    np.max(list(metrics["qq_mae_seasonal"][season_name][name].values()))
+                ),
+                "swd_seasonal": metrics["swd_seasonal"][season_name][name],
+                "mean_corr_dev": metrics["corr_dev"][name][season_name],
+            }
+            for name in active_subsets
+        ]
+        df_s = pd.DataFrame(rows).sort_values("swd_seasonal").reset_index(drop=True)
+        df_s[["mean_qq_mae", "max_qq_mae", "swd_seasonal", "mean_corr_dev"]] = df_s[
+            ["mean_qq_mae", "max_qq_mae", "swd_seasonal", "mean_corr_dev"]
+        ].round(3)
+        seasonal_dfs[season_name] = df_s
+
+    # Worst-season summary
+    rows = [
+        {
+            "subset": name,
+            "swd_annual": metrics["swd_annual"][name],
+            "sswd": metrics["sswd"][name],
+            **{
+                f"swd_{s}": metrics["swd_seasonal"][s][name]
+                for s in metrics["season_list"]
+            },
+            "worst_mean_qq_mae": max(
+                np.mean(list(metrics["qq_mae_seasonal"][s][name].values()))
+                for s in metrics["season_list"]
+            ),
+            "worst_mean_corr_dev": max(
+                metrics["corr_dev"][name][s] for s in metrics["season_list"]
+            ),
+        }
+        for name in active_subsets
+    ]
+    df_summary = pd.DataFrame(rows).sort_values("sswd").reset_index(drop=True)
+    numeric_cols = df_summary.select_dtypes(include="number").columns
+    df_summary[numeric_cols] = df_summary[numeric_cols].round(3)
+
+    return seasonal_dfs, df_summary
 
 
 def plot_lollipop_by_country(
     df_results, df_country_results, countries, metric, metric_label, save_dir=None
 ):
-    """Plot lollipop chart of results by country."""
+    """Plot lollipop chart of results by country. Used for auto-evaluation in 02_run_selections.py"""
     # take 5 best SA selections
     idx_best = df_results.sort_values(metric).index[:5]
     df_best = df_results.loc[idx_best]
@@ -169,6 +327,11 @@ def plot_lollipop_by_country(
 
 
 ### Physical Evaluation ###
+# Automatic evaluation in 02_run_selections.py.
+# Only used as diagnostic, not for final paper figures.
+# TODO: Some overlap here with functions from above used in  03_evaluation_plots.py, consider merging or at least reusing code between these two files.
+
+
 def compute_monthly_mean(df, variables):
     """Compute monthly means for given variables."""
     df = df.set_index("Date")
@@ -228,7 +391,9 @@ def compute_drought_statistics(df, country, ref_percentiles=None):
     return percentiles, stats
 
 
-def perform_physical_evaluation(df_results, df_ref, countries, variables, save_dir=None):
+def perform_physical_evaluation(
+    df_results, df_ref, countries, variables, save_dir=None
+):
     """
     Perform comprehensive physical evaluation for all countries in countries.
     Creates all plots and analyses for seasonal patterns, correlations, and drought metrics.
