@@ -7,7 +7,7 @@ from cluster_weather_years.constants import (
     PROBS,
     SEASONS,
 )
-from cluster_weather_years.cost_functions import wasserstein_seasonal_score
+from cluster_weather_years.cost_functions import wasserstein_score, wasserstein_seasonal_score
 from cluster_weather_years.helper_functions import (
     build_df_from_modelyears,
     draw_random_modelyears,
@@ -395,6 +395,8 @@ def init_worker(
     year_col,
     columns,
     skip_check,
+    n_projections_init=50,
+    n_projections_full=200,
 ):
     """Store read-only config in worker-global dict (avoids passing every task)."""
     _G["df_ref"] = df_ref
@@ -405,10 +407,21 @@ def init_worker(
     _G["year_col"] = year_col
     _G["columns"] = columns
     _G["skip_check"] = skip_check
+    _G["n_projections_init"] = n_projections_init
+    _G["n_projections_full"] = n_projections_full
 
 
 def run_batch(batch_idx, batch_size, iterations, seed, seasonal=False):
-    """Run one batch and return (pass_records, fail_records, pass_modelyears)."""
+    """Run one batch and return (pass_records, fail_records, pass_modelyears).
+
+    Two-step scoring: all passing draws are first scored cheaply with
+    n_projections_init, then the top 10% are re-scored at full resolution
+    (n_projections_full). Only those full-resolution records are returned.
+    """
+    score_fn = wasserstein_seasonal_score if seasonal else wasserstein_score
+    score_col = "wasserstein_seasonal" if seasonal else "wasserstein"
+    n_projections_init = _G["n_projections_init"]
+    n_projections_full = _G["n_projections_full"]
 
     rng_batch = np.random.default_rng(seed)
     start = batch_idx * batch_size
@@ -416,8 +429,8 @@ def run_batch(batch_idx, batch_size, iterations, seed, seasonal=False):
 
     pass_records = []
     fail_records = []
-    pass_modelyears = []
 
+    # --- First pass: cheap scoring with n_projections_init ---
     for i in range(start, stop):
         df_random, drawn_model_years = build_random_df(
             _G["df_ref"],
@@ -436,6 +449,7 @@ def run_batch(batch_idx, batch_size, iterations, seed, seasonal=False):
                 _G["thresholds_mean"],
                 _G["thresholds_energy"],
                 columns=_G["columns"],
+                n_projections=n_projections_init,
                 skip_check=_G["skip_check"],
             )
         else:
@@ -447,13 +461,42 @@ def run_batch(batch_idx, batch_size, iterations, seed, seasonal=False):
                 _G["thresholds_mean"],
                 _G["thresholds_energy"],
                 columns=_G["columns"],
+                n_projections=n_projections_init,
                 skip_check=_G["skip_check"],
             )
 
         if passed:
             pass_records.append(record)
-            pass_modelyears.append(drawn_model_years)
         else:
             fail_records.append(record)
 
+    # --- Second pass: full-resolution re-scoring for top 10% of passing draws ---
+    # Only the Wasserstein scores depend on n_projections, so we re-compute just those.
+    if pass_records:
+        init_scores = [r[score_col] for r in pass_records]
+        k = max(1, int(len(pass_records) * 0.1))
+        top_indices = np.argsort(init_scores)[:k]
+
+        top_pass_records = []
+        for idx in top_indices:
+            record = dict(pass_records[idx])  # shallow copy to avoid mutating original
+            record["wasserstein"] = wasserstein_score(
+                df=_G["df_ref"],
+                combos=record["model_years"],
+                variables=_G["columns"],
+                year_col=_G["year_col"],
+                n_projections=n_projections_full,
+            )
+            record["wasserstein_seasonal"] = wasserstein_seasonal_score(
+                df=_G["df_ref"],
+                combos=record["model_years"],
+                variables=_G["columns"],
+                year_col=_G["year_col"],
+                n_projections=n_projections_full,
+            )
+            top_pass_records.append(record)
+
+        pass_records = top_pass_records
+
+    pass_modelyears = [r["model_years"] for r in pass_records]
     return pass_records, fail_records, pass_modelyears

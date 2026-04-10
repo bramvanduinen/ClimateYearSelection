@@ -5,7 +5,7 @@ import logging
 import math
 import os
 from concurrent.futures import ProcessPoolExecutor, as_completed
-from typing import List, Optional
+from typing import List
 
 import numpy as np
 import pandas as pd
@@ -46,14 +46,15 @@ def _run_kmedoids_batch(args):
         n_clusters,
         year_col,
         seasonal,
+        n_projections_init,
+        n_projections_full,
     ) = args
 
     score_fn = wasserstein_seasonal_score if seasonal else wasserstein_score
     score_key = "wasserstein_seasonal" if seasonal else "wasserstein"
 
     rng = np.random.default_rng(batch_seed)
-    best_score = float("inf")
-    best_result: Optional[dict] = None
+    all_results: list[dict] = []
     all_scores: list[float] = []
 
     for _ in range(batch_size):
@@ -72,22 +73,41 @@ def _run_kmedoids_batch(args):
             combos=combos,
             variables=vars_non_nan,
             year_col=year_col,
-            n_projections=50,
+            n_projections=n_projections_init,
         )
         all_scores.append(float(score))
-
-        if score < best_score:
-            best_score = float(score)
-            best_result = {
+        all_results.append(
+            {
                 "model_years": combos,
                 "run_seed": run_seed,
                 "batch_seed": batch_seed,
                 "inertia": float(kmed.inertia_),
-                score_key: best_score,
+                score_key: float(score),
                 "selection_source": "k_medoids_stochastic",
             }
+        )
 
     median_score = float(np.median(all_scores))
+
+    # Re-score top 10% of candidates with full resolution
+    k = max(1, int(len(all_results) * 0.1))
+    top_indices = np.argsort(all_scores)[:k]
+    best_score = float("inf")
+    best_result: dict | None = None
+    for idx in top_indices:
+        result = all_results[idx]
+        full_score = score_fn(
+            df=df_ref,
+            combos=result["model_years"],
+            variables=vars_non_nan,
+            year_col=year_col,
+            n_projections=n_projections_full,
+        )
+        result[score_key] = float(full_score)
+        if full_score < best_score:
+            best_score = float(full_score)
+            best_result = result
+
     return best_result, median_score
 
 
@@ -100,6 +120,9 @@ def k_medoids_stochastic(
     num_experiments: int,
     year_col: str = "Hydrological_year",
     SEASONAL: bool = False,
+    n_projections_init: int = 50,
+    n_projections_full: int = 200,
+    seed_offset: int = 0,
 ) -> pd.DataFrame:
     """Stochastic K-Medoids with k-medoids++ initialisation.
 
@@ -158,12 +181,9 @@ def k_medoids_stochastic(
     batch_size = math.ceil(num_runs_total / num_experiments)
     n_workers = min(os.cpu_count() or 1, num_experiments)
 
-    # HACK: Temporary seed offset for test here!
-
-    SEED_OFFSET = 100  # change this for a different stochastic outcome
     job_args = [
         (
-            SEED_OFFSET + batch_seed,  # unique seed per batch → unique RNG stream
+            seed_offset + batch_seed,  # unique seed per batch → unique RNG stream
             batch_size,
             stats_scaled,
             yearly_stats,
@@ -172,6 +192,8 @@ def k_medoids_stochastic(
             n_clusters,
             year_col,
             SEASONAL,
+            n_projections_init,
+            n_projections_full,
         )
         for batch_seed in range(num_experiments)
     ]

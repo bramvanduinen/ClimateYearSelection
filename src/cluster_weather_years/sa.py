@@ -28,6 +28,8 @@ def simulated_annealing_selection(
     random_state: Optional[int] = None,
     sel_type="full",  # full to sample from full df, or 'subset' to choose mini-subset from larger subset.
     subset=None,  # only specified if sel_type = "subset"
+    n_projections_init: int = 50,
+    n_projections_full: int = 200,
 ) -> Tuple[list[Tuple[str, int]], float, pd.DataFrame]:
     """
     Simulated annealing that optimises `scoring_fn`.
@@ -73,6 +75,7 @@ def simulated_annealing_selection(
         variables=variables,
         model_col=model_col,
         year_col=year_col,
+        n_projections=n_projections_init,
     )
 
     temp = temp_start
@@ -120,6 +123,7 @@ def simulated_annealing_selection(
             variables=variables,
             model_col=model_col,
             year_col=year_col,
+            n_projections=n_projections_init,
         )
 
         # --- Metropolis accept/reject with tracking ---
@@ -139,7 +143,7 @@ def simulated_annealing_selection(
                 variables=variables,
                 model_col=model_col,
                 year_col=year_col,
-                n_projections=200,
+                n_projections=n_projections_full,
             )
 
         delta = neighbour_score - current_score
@@ -237,6 +241,8 @@ def run_sa(
     NUM_CLUSTERS = inputs["NUM_CLUSTERS"]
     output_dir_sa = inputs["output_dir_sa"]
     YEAR_COL = inputs["YEAR_COL"]
+    n_projections_init = inputs["n_projections_init"]
+    n_projections_full = inputs["n_projections_full"]
 
     selected, best_score, log_df = simulated_annealing_selection(
         df=df_daily,
@@ -251,6 +257,8 @@ def run_sa(
         random_state=seed,
         sel_type=sel_type,
         subset=subset,
+        n_projections_init=n_projections_init,
+        n_projections_full=n_projections_full,
     )
 
     sel_dict = {

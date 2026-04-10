@@ -19,6 +19,8 @@ from RUN_SETTINGS import (
     HBF_ITER_MULTIPLIER,
     HYDRO,
     MATCH_COUNTRIES,
+    N_PROJECTIONS_FULL,
+    N_PROJECTIONS_INIT,
     NUM_EXPERIMENTS,
     NUM_TO_SELECT,
     P_THRES,
@@ -28,6 +30,7 @@ from RUN_SETTINGS import (
     RUNNAME,
     RUNNAME_SA_FALLBACK,
     SEASONAL,
+    SEED_OFFSET,
     TUNING_ITERATIONS,
     VARS_TO_MATCH,
     YEAR_COL,
@@ -60,10 +63,6 @@ from cluster_weather_years.k_medoids_stochastic import k_medoids_stochastic
 from cluster_weather_years.sa import run_sa
 
 # pylint: enable=import-error
-
-# NOTE: TEMPORARY, seed offset for SA and K-medoids
-# Also remove in SA function.
-SEED_OFFSET = 100
 
 
 def _parse_model_years(df: pd.DataFrame) -> pd.DataFrame:
@@ -179,37 +178,61 @@ def load_data():
 
 
 def _draw_random_batch(args):
-    """Draw and score a batch of random year selections; return the best result and median score."""
-    seed, model_years, batch_size, num_to_select, vars_non_nan = args
+    """Draw and score a batch of random year selections; return the best result and median score.
+
+    Two-step scoring: all draws are first evaluated cheaply (n_projections_init), then
+    the top 10% are re-scored at full resolution (n_projections_full). The best of those
+    full-resolution top-10% candidates is returned.
+    """
+    (
+        seed,
+        model_years,
+        batch_size,
+        num_to_select,
+        vars_non_nan,
+        n_projections_init,
+        n_projections_full,
+    ) = args
     rng = np.random.default_rng(seed)
     draws = draw_random_modelyears(model_years, batch_size, num_to_select, rng)
     score_key = "wasserstein_seasonal" if SEASONAL else "wasserstein"
-    best_score = float("inf")
-    best_result = None
+    score_fn = wasserstein_seasonal_score if SEASONAL else wasserstein_score
+
+    # --- First pass: cheap scoring ---
+    all_results: list[dict] = []
     all_scores: list[float] = []
     for model_years_draw in draws:
-        score = (
-            wasserstein_seasonal_score(
-                df=df_ref,
-                combos=model_years_draw,
-                variables=vars_non_nan,
-                year_col=YEAR_COL,
-                n_projections=50,
-            )
-            if SEASONAL
-            else wasserstein_score(
-                df=df_ref,
-                combos=model_years_draw,
-                variables=vars_non_nan,
-                year_col=YEAR_COL,
-                n_projections=50,
-            )
+        score = score_fn(
+            df=df_ref,
+            combos=model_years_draw,
+            variables=vars_non_nan,
+            year_col=YEAR_COL,
+            n_projections=n_projections_init,
         )
         all_scores.append(float(score))
-        if score < best_score:
-            best_score = score
-            best_result = {"model_years": model_years_draw, score_key: score}
+        all_results.append({"model_years": model_years_draw, score_key: float(score)})
+
     median_score = float(np.median(all_scores))
+
+    # --- Second pass: full-resolution re-scoring for top 10% ---
+    k = max(1, int(len(all_results) * 0.1))
+    top_indices = np.argsort(all_scores)[:k]
+    best_score = float("inf")
+    best_result = None
+    for idx in top_indices:
+        result = all_results[idx]
+        full_score = score_fn(
+            df=df_ref,
+            combos=result["model_years"],
+            variables=vars_non_nan,
+            year_col=YEAR_COL,
+            n_projections=n_projections_full,
+        )
+        result[score_key] = float(full_score)
+        if full_score < best_score:
+            best_score = float(full_score)
+            best_result = result
+
     return best_result, median_score
 
 
@@ -234,7 +257,15 @@ def run_baseline_random_draws(
     n_workers = min(os.cpu_count() or 1, NUM_EXPERIMENTS)
     # Each experiment gets its own unique seed (experiment index)
     job_args = [
-        (seed, model_years, batch_size, NUM_TO_SELECT, vars_non_nan)
+        (
+            seed,
+            model_years,
+            batch_size,
+            NUM_TO_SELECT,
+            vars_non_nan,
+            N_PROJECTIONS_INIT,
+            N_PROJECTIONS_FULL,
+        )
         for seed in range(NUM_EXPERIMENTS)
     ]
 
@@ -284,7 +315,7 @@ def run_kmedoids(df_ref, vars_non_nan, sa_total_iters, output_dir_kmedoids):
 
     Runs ``sa_total_iters`` independent K-Medoids++ fits split into
     ``NUM_EXPERIMENTS`` parallel batches, keeping the best-scoring result
-    per batch — identical compute budget to SA and the random draws.
+    per batch. Identical compute budget to SA and the random draws.
     """
     logger = logging.getLogger(__name__)
     logger.info(
@@ -301,6 +332,9 @@ def run_kmedoids(df_ref, vars_non_nan, sa_total_iters, output_dir_kmedoids):
         num_experiments=NUM_EXPERIMENTS,
         year_col=YEAR_COL,
         SEASONAL=SEASONAL,
+        n_projections_init=N_PROJECTIONS_INIT,
+        n_projections_full=N_PROJECTIONS_FULL,
+        seed_offset=SEED_OFFSET,
     )
     logger.info(f"K-Medoids completed. Results saved to {output_dir_kmedoids}.")
     return df_kmedoids_results
@@ -321,6 +355,8 @@ def run_simulated_annealing(df_ref, vars_non_nan, output_dir_sa):
             "NUM_CLUSTERS": NUM_TO_SELECT,
             "output_dir_sa": output_dir_sa,
             "YEAR_COL": YEAR_COL,
+            "n_projections_init": N_PROJECTIONS_INIT,
+            "n_projections_full": N_PROJECTIONS_FULL,
         }
         # Distribute cooling rates fairly across NUM_EXPERIMENTS unique seeds:
         # experiment i gets cooling_rates[i * n_cooling_rates // NUM_EXPERIMENTS]
@@ -465,6 +501,8 @@ def run_hierarchical_brute_force(
                 YEAR_COL,
                 vars_non_nan,
                 True,  # skip_check
+                N_PROJECTIONS_INIT,
+                N_PROJECTIONS_FULL,
             ),
         ) as ex:
             hbf_batch_iter = ex.map(
@@ -623,7 +661,7 @@ def process_row(row):
                 None,
                 None,
                 country_vars,
-                n_projections=50,  # reduce computation time
+                n_projections=N_PROJECTIONS_INIT,  # reduce computation time
                 skip_check=False,
             )[1]
         else:
@@ -635,7 +673,7 @@ def process_row(row):
                 None,
                 None,
                 country_vars,
-                n_projections=50,  # reduce computation time
+                n_projections=N_PROJECTIONS_INIT,  # reduce computation time
                 skip_check=False,
             )[1]
 
