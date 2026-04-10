@@ -159,11 +159,10 @@ sel_my_kmed, df_sub_kmed = _best_subset_by_source(
     df_results_sorted, df_ref, "k_medoids"
 )
 sel_my_random, df_sub_random = _best_subset_by_source(
-    df_results_sorted, df_ref, "random_draws"
+    df_results_sorted, df_ref, "random_search"
 )
 
-# TODO: hbf renamed to FRS!
-sel_my_frs, df_sub_frs = _best_subset_by_source(df_results_sorted, df_ref, "hbf")
+sel_my_frs, df_sub_frs = _best_subset_by_source(df_results_sorted, df_ref, "frs")
 
 eraa25_models = ["cmcc_cm2_sr5", "ec_earth3", "mpi_esm_1_2_hr"]
 eraa25_modelyears = tuple(product(eraa25_models, range(2025, 2037)))

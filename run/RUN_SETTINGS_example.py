@@ -34,7 +34,7 @@ MATCH_COUNTRIES = ["NL"]
 RUN_SA = True  # set False to skip SA and load results from RUNNAME_SA_FALLBACK instead
 RUNNAME_SA_FALLBACK = "FALLBACK_RUNNAME"
 
-# Total number of SA/random-draw/HBF experiments (each gets a unique seed).
+# Total number of SA/Random Search/FRS experiments (each gets a unique seed).
 # Cooling rates are distributed as evenly as possible across experiments:
 # e.g. 45 experiments with 3 cooling rates → 15 experiments per rate.
 NUM_EXPERIMENTS = 25
@@ -59,16 +59,16 @@ PARAM_GRID = {
 }
 
 # =============================================================================
-# HIERARCHICAL BRUTE-FORCE (HBF) SETTINGS
+# FILTERED RANDOM SEARCH (FRS) SETTINGS
 # =============================================================================
-RUN_HBF = True  # set False to skip HBF
+RUN_FRS = True  # set False to skip FRS
 
 P_THRES = 25  # percentile threshold for univariate pre-filters
 # (guideline: ~25 for 1 country, ~50 for a few, ~75 for many, with 30 years)
 TUNING_ITERATIONS = int(1e3)  # iterations used to calibrate thresholds
-# HBF runs HBF_ITER_MULTIPLIER × (sum of SA n_iter) total draws.
+# FRS runs FRS_ITER_MULTIPLIER × (sum of SA n_iter) total draws.
 # E.g. with NUM_EXPERIMENTS=45 and sa_iter=5000 → 45*5000*10 = 2,250,000 draws.
-HBF_ITER_MULTIPLIER = 10
+FRS_ITER_MULTIPLIER = 10
 
 # =============================================================================
 # DATA SETTINGS (usually don't need to change these)

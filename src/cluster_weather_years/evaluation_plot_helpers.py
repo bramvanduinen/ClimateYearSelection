@@ -31,7 +31,7 @@ from cluster_weather_years.evaluation import (
     _filter_season,
     _qq_diff_and_mae,
 )
-from cluster_weather_years.hierarchical_brute_force import build_random_df
+from cluster_weather_years.filtered_random_search import build_random_df
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Method display config
@@ -50,8 +50,8 @@ METHOD_CONFIG = [
 _SOURCE_KEY_MAP = [
     ("simulated_annealing", "Best SA Subset"),
     ("k_medoids", "Best K-Medoids Subset"),
-    ("hbf", "Best FRS Subset"),
-    ("random_draws", "Best Random Search Subset"),
+    ("frs", "Best FRS Subset"),
+    ("random_search", "Best Random Search Subset"),
     ("eraa", "ERAA25 Subset"),
 ]
 _KEY_TO_LABEL = {key: label for key, label, _ in METHOD_CONFIG}
