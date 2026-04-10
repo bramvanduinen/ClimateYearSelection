@@ -61,6 +61,10 @@ from cluster_weather_years.sa import run_sa
 
 # pylint: enable=import-error
 
+# NOTE: TEMPORARY, seed offset for SA and K-medoids
+# Also remove in SA function.
+SEED_OFFSET = 100
+
 
 def _parse_model_years(df: pd.DataFrame) -> pd.DataFrame:
     """Parse model_years column from CSV string repr back to tuples after read_csv."""
@@ -322,12 +326,12 @@ def run_simulated_annealing(df_ref, vars_non_nan, output_dir_sa):
         # experiment i gets cooling_rates[i * n_cooling_rates // NUM_EXPERIMENTS]
         cooling_rates = PARAM_GRID["cooling_rate"]
         n_cooling_rates = len(cooling_rates)
-        metric = PARAM_GRID["metric"][0]
+        metric = wasserstein_seasonal_score if SEASONAL else wasserstein_score
         temp_start = PARAM_GRID["temp_start"][0]
         max_iter = PARAM_GRID["max_iter"][0]
         param_set = [
             {
-                "seed": i,
+                "seed": i + SEED_OFFSET,
                 "metric": metric,
                 "t0": temp_start,
                 "cr": cooling_rates[i * n_cooling_rates // NUM_EXPERIMENTS],

@@ -44,20 +44,24 @@ from cluster_weather_years.helper_functions import build_df_from_modelyears
 # ═══════════════════════════════════════════════════════════════════════
 # CONFIGURATION — edit these toggles
 # ═══════════════════════════════════════════════════════════════════════
-N_PROJECTIONS = 50  # number of random projections for SWD. Match this to the value used during optimization for consistency, or set higher for more accurate final scores (at the cost of longer computation time).
+N_PROJECTIONS = 200  # number of random projections for SWD. Match this to the value used during optimization for consistency, or set higher for more accurate final scores (at the cost of longer computation time).
 SEED = 42  # reproducibility seed for SWD
-INCLUDE_ERAA25 = True  # set False to exclude ERAA25 from all plots
+INCLUDE_ERAA25 = False  # set False to exclude ERAA25 from all plots
 MULTI_COUNTRY = (
     True  # True: panel (b) groups variables by type and sums QQ-MAE across countries
 )
 PLOT_EVERYTHING = False  # set False to skip distribution/QQ/correlation plots and only compute scores + summary tables (faster)
-CALC_EQUIVALENT_TO_N_YEARS = True  # If True, compute how many random draws would be needed to match the best subset's SWD score (rough estimate of "equivalent number of years" for that method)
+CALC_EQUIVALENT_TO_N_YEARS = False  # If True, compute how many random draws would be needed to match the best subset's SWD score (rough estimate of "equivalent number of years" for that method)
 
 # RUNNAME_ = "run_NL_30y_fair_20260225_1243"
 # RUNNAME_ = "run_NL_5y_fair_20260301_1105"
 # RUNNAME_ = "run_Europe_30y_fair_20260227_1625"
-RUNNAME_ = "run_Europe_30y_hydro_20260306_1159"
-# RUNNAME_ = "test_run_NL_30y_hydro_20260311_1244"
+
+# newest runs
+# RUNNAME_ = "run_Europe_30y_hydro_20260306_1159"
+RUNNAME_ = "run_Europe_5y_hydro_20260323_1608"
+# RUNNAME_ = "run_NL_30y_hydro_20260319_1631"
+# RUNNAME_ = "run_NL_5y_hydro_20260322_1727"
 
 SELECTED_YEARS = 30
 # HYDROLOGICAL_YEARS = range(2016, 2044)
@@ -157,7 +161,9 @@ sel_my_kmed, df_sub_kmed = _best_subset_by_source(
 sel_my_random, df_sub_random = _best_subset_by_source(
     df_results_sorted, df_ref, "random_draws"
 )
-sel_my_hbf, df_sub_hbf = _best_subset_by_source(df_results_sorted, df_ref, "hbf")
+
+# TODO: hbf renamed to FRS!
+sel_my_frs, df_sub_frs = _best_subset_by_source(df_results_sorted, df_ref, "hbf")
 
 eraa25_models = ["cmcc_cm2_sr5", "ec_earth3", "mpi_esm_1_2_hr"]
 eraa25_modelyears = tuple(product(eraa25_models, range(2025, 2037)))
@@ -166,8 +172,8 @@ df_sub_eraa25 = build_df_from_modelyears(df_ref, eraa25_modelyears)
 ALL_SUBSETS = {
     "Best SA Subset": {"df": df_sub_sa, "modelyears": sel_my_sa},
     "Best K-Medoids Subset": {"df": df_sub_kmed, "modelyears": sel_my_kmed},
-    "Best HBF Subset": {"df": df_sub_hbf, "modelyears": sel_my_hbf},
-    "Best Random Subset": {"df": df_sub_random, "modelyears": sel_my_random},
+    "Best FRS Subset": {"df": df_sub_frs, "modelyears": sel_my_frs},
+    "Best Random Search Subset": {"df": df_sub_random, "modelyears": sel_my_random},
     "ERAA25 Subset": {"df": df_sub_eraa25, "modelyears": eraa25_modelyears},
 }
 active_subsets = _active_subsets(ALL_SUBSETS)
@@ -289,7 +295,7 @@ make_summary_figure(
 # %% 10. Equivalent-to-N-years (optional)
 
 if CALC_EQUIVALENT_TO_N_YEARS:
-    plot_equivalent_to_n_years(
+    num_years_range, all_scores = plot_equivalent_to_n_years(
         df_results, df_ref, vars_non_nan, SELECTED_YEARS, SAVE_DIR
     )
 

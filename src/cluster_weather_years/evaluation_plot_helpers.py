@@ -41,8 +41,8 @@ from cluster_weather_years.hierarchical_brute_force import build_random_df
 METHOD_CONFIG = [
     ("Best SA Subset", "SA", "#4daf4a"),  # green
     ("Best K-Medoids Subset", "K-Medoids", "#984ea3"),  # purple
-    ("Best HBF Subset", "HBF", "#ff7f00"),  # orange
-    ("Best Random Subset", "Random", "#377eb8"),  # blue
+    ("Best FRS Subset", "FRS", "#ff7f00"),  # orange
+    ("Best Random Search Subset", "Random", "#377eb8"),  # blue
     ("ERAA25 Subset", "ERAA25 (36 yr)", "#e41a1c"),  # red
 ]
 
@@ -50,10 +50,8 @@ METHOD_CONFIG = [
 _SOURCE_KEY_MAP = [
     ("simulated_annealing", "Best SA Subset"),
     ("k_medoids", "Best K-Medoids Subset"),
-    ("hierarchical", "Best HBF Subset"),
-    ("brute_force", "Best HBF Subset"),
-    ("hbf", "Best HBF Subset"),
-    ("random_draws", "Best Random Subset"),
+    ("hbf", "Best FRS Subset"),
+    ("random_draws", "Best Random Search Subset"),
     ("eraa", "ERAA25 Subset"),
 ]
 _KEY_TO_LABEL = {key: label for key, label, _ in METHOD_CONFIG}
@@ -63,10 +61,11 @@ _VAR_SUFFIX_MAP = {
     "OFF_prod": "Offshore \n wind prod.",
     "ON_prod": "Onshore \n wind prod.",
     "SOLAR_prod": "Solar prod.",
+    "HRO_prod": "Run-of-river \n prod.",
+    "HPO_prod": "Pondage \n run-of-river prod.",
+    "HRG_prod": "Reservoir \n hydro prod.",
     "Demand": "Demand",
-    "Residual_load": "Residual load",
-    "ROR_prod": "Run-of-river prod.",
-    "RES_prod": "Reservoir prod.",
+    "Residual_load": "Residual \n load",
 }
 
 
@@ -660,7 +659,9 @@ def _plot_panel_a_swd(ax, mode: str, metrics: dict, cfg: dict):
 
     if mode == "seasonal":
         for i, (key, label) in enumerate(zip(cfg["keys"], cfg["labels"])):
-            for j, (season, hatch) in enumerate(zip(metrics["season_list"], [".", "/"])):
+            for j, (season, hatch) in enumerate(
+                zip(metrics["season_list"], [".", "/"])
+            ):
                 val = metrics["swd_seasonal"][season][key]
                 ax.barh(
                     y[i] + (j - 0.5) * bar_h,
@@ -695,6 +696,11 @@ def _plot_panel_a_swd(ax, mode: str, metrics: dict, cfg: dict):
                 fontweight="bold",
                 color="0.3",
             )
+
+        # HACK: If ERAA25 not included (then n-methods = 4), set xlim to 1.3x max SSWD to fit legend
+        if n_methods <= 4:
+            ax.set_xlim(0, max(metrics["sswd"].values()) * 1.3)
+
         ax.legend(
             handles=[
                 Patch(
@@ -714,6 +720,7 @@ def _plot_panel_a_swd(ax, mode: str, metrics: dict, cfg: dict):
             loc="upper right",
             fontsize=10,
         )
+
         ax.set_title(
             "(a) Sliced Wasserstein distance, per season",
             fontweight="bold",
@@ -813,7 +820,7 @@ def _plot_panel_b_qqmae(
                     zorder=2,
                 )
         ax.set_xticks(xv)
-        ax.set_xticklabels(vartypes, fontsize=8, rotation=20, ha="right")
+        ax.set_xticklabels(vartypes, fontsize=8, rotation=45, ha="right")
         ax.set_ylabel(
             f"QQ-MAE sum over {n_countries} countries (GWh/day)\n(lower = better)",
             color="0.4",
@@ -882,7 +889,7 @@ def _plot_panel_b_qqmae(
         color="0.5",
         style="italic",
     )
-    ax.set_ylim(bottom=0)
+    ax.set_ylim(bottom=0, top=ax.get_ylim()[1] * 1.1)
 
 
 def _plot_panel_c_corrdev(ax, mode: str, metrics: dict, cfg: dict):
@@ -973,7 +980,7 @@ def make_summary_figure(
         loc="lower center",
         ncol=len(cfg["labels"]),
         fontsize=9,
-        bbox_to_anchor=(0.5, -0.02),
+        bbox_to_anchor=(0.5, -0.05),
         frameon=True,
     )
     fig.tight_layout()
@@ -1003,8 +1010,8 @@ def plot_equivalent_to_n_years(
     selected_years : int
         Number of years in the best subset (used only for the figure label).
     """
-    num_years_range = [5] + list(range(10, 161, 10)) + [168]
-    hydro_years = range(2016, 2044)
+    num_years_range = [1, 3, 5] + list(range(10, 181, 10))
+    hydro_years = range(2016, 2046)
     model_years = list(product(MODELS, hydro_years))
     n_repeats = 25
 
@@ -1058,8 +1065,12 @@ def plot_equivalent_to_n_years(
     plt.xlabel("Number of years")
     plt.ylabel("SSWD (-)")
     plt.ylim(0, None)
+    plt.xlim(0, None)
     plt.legend()
     plt.grid(alpha=0.3)
+    plt.xticks(range(0, 181, 10))
     plt.savefig(
         os.path.join(save_dir, "equivalent_to_N_years.pdf"), bbox_inches="tight"
     )
+
+    return num_years_range, all_scores

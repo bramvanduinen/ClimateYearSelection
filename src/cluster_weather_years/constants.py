@@ -24,6 +24,8 @@ SEASONS = {"Winter": [10, 11, 12, 1, 2, 3], "Summer": [4, 5, 6, 7, 8, 9]}
 
 COLORS = cm.get_cmap("tab10").colors
 
+# TODO: move these to RUN_SETTINGS.py. Doesn't make sense to set paths in method.
+# Maybe the whole constants.py should be moved there actually, since it's mostly run settings and paths.
 BASE_INPUT = "/net/pc230050/nobackup/users/duinen/04_weather_year_selection/inputs/"
 BASE_OUTPUT = "/net/pc230050/nobackup/users/duinen/04_weather_year_selection/outputs/"
 

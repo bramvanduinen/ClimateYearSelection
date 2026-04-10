@@ -158,9 +158,12 @@ def k_medoids_stochastic(
     batch_size = math.ceil(num_runs_total / num_experiments)
     n_workers = min(os.cpu_count() or 1, num_experiments)
 
+    # HACK: Temporary seed offset for test here!
+
+    SEED_OFFSET = 100  # change this for a different stochastic outcome
     job_args = [
         (
-            batch_seed,  # unique seed per batch → unique RNG stream
+            SEED_OFFSET + batch_seed,  # unique seed per batch → unique RNG stream
             batch_size,
             stats_scaled,
             yearly_stats,
