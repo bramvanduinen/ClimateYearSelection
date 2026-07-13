@@ -46,23 +46,21 @@ from cluster_weather_years.helper_functions import build_df_from_modelyears
 # ═══════════════════════════════════════════════════════════════════════
 N_PROJECTIONS = 200  # number of random projections for SWD. Match this to the value used during optimization for consistency, or set higher for more accurate final scores (at the cost of longer computation time).
 SEED = 42  # reproducibility seed for SWD
-INCLUDE_ERAA25 = False  # set False to exclude ERAA25 from all plots
+INCLUDE_ERAA25 = True  # set False to exclude ERAA25 from all plots
 MULTI_COUNTRY = (
     True  # True: panel (b) groups variables by type and sums QQ-MAE across countries
 )
 PLOT_EVERYTHING = False  # set False to skip distribution/QQ/correlation plots and only compute scores + summary tables (faster)
 CALC_EQUIVALENT_TO_N_YEARS = False  # If True, compute how many random draws would be needed to match the best subset's SWD score (rough estimate of "equivalent number of years" for that method)
+OLD_NAMING = True
 
-# RUNNAME_ = "run_NL_30y_fair_20260225_1243"
-# RUNNAME_ = "run_NL_5y_fair_20260301_1105"
-# RUNNAME_ = "run_Europe_30y_fair_20260227_1625"
-
-# newest runs
+# paper runs (initial submission)
 # RUNNAME_ = "run_Europe_30y_hydro_20260306_1159"
-RUNNAME_ = "run_Europe_5y_hydro_20260323_1608"
+# RUNNAME_ = "run_Europe_5y_hydro_20260323_1608"
 # RUNNAME_ = "run_NL_30y_hydro_20260319_1631"
-# RUNNAME_ = "run_NL_5y_hydro_20260322_1727"
 
+# newer runs (LSTR)
+RUNNAME_ = "NL_30y_hydro_lstr_test_20260519_0818"
 SELECTED_YEARS = 30
 # HYDROLOGICAL_YEARS = range(2016, 2044)
 
@@ -75,23 +73,23 @@ os.makedirs(SAVE_DIR, exist_ok=True)
 # ═══════════════════════════════════════════════════════════════════════
 # PLOTTING STYLE
 # ═══════════════════════════════════════════════════════════════════════
+
 plt.rcParams.update(
     {
         "figure.dpi": 300,
         "savefig.dpi": 300,
-        "font.size": 10,
-        "axes.titlesize": 10,
-        "axes.labelsize": 9,
-        "legend.fontsize": 8,
-        "xtick.labelsize": 8,
-        "ytick.labelsize": 8,
+        "font.size": 15,
+        "axes.titlesize": 15,
+        "axes.labelsize": 15,
+        "legend.fontsize": 15,
+        "xtick.labelsize": 15,
+        "ytick.labelsize": 15,
         "axes.spines.top": False,
         "axes.spines.right": False,
         "axes.grid": False,
         "grid.alpha": 0.2,
     }
 )
-
 
 # ═══════════════════════════════════════════════════════════════════════
 # HELPER FUNCTIONS
@@ -158,13 +156,21 @@ sel_my_sa, df_sub_sa = _best_subset_by_source(
 sel_my_kmed, df_sub_kmed = _best_subset_by_source(
     df_results_sorted, df_ref, "k_medoids"
 )
+
+# HACK: for older runs where FRS was labeled "hbf" and random search was labeled "random_draws"
+if OLD_NAMING:
+    df_results["selection_source"] = df_results["selection_source"].replace(
+        {"HBF": "frs", "random_draws": "random_search"}
+    )
+    df_results_sorted = df_results.sort_values("wasserstein_seasonal")
+
 sel_my_random, df_sub_random = _best_subset_by_source(
     df_results_sorted, df_ref, "random_search"
 )
-
 sel_my_frs, df_sub_frs = _best_subset_by_source(df_results_sorted, df_ref, "frs")
 
-eraa25_models = ["cmcc_cm2_sr5", "ec_earth3", "mpi_esm_1_2_hr"]
+
+eraa25_models = ["cmcc_cm2_sr5", "ec_earth3", "mpi_esm1_2_hr"]
 eraa25_modelyears = tuple(product(eraa25_models, range(2025, 2037)))
 df_sub_eraa25 = build_df_from_modelyears(df_ref, eraa25_modelyears)
 
@@ -189,7 +195,24 @@ print(
 )
 
 fname_luck_df = os.path.join(BASE_OUTPUT, RUNNAME_, "evaluation/luck_analysis.csv")
-df_luck = pd.read_csv(fname_luck_df, index_col=0)
+df_luck = pd.read_csv(fname_luck_df)
+
+if OLD_NAMING:
+    df_luck["selection_source"] = df_luck["selection_source"].replace(
+        {"HBF": "frs", "random_draws": "random_search"}
+    )
+
+df_luck.index = df_luck["selection_source"]
+
+# Re-calculate with random_search median as normaliser (older runs used each method's own median)
+_random_median = df_luck.loc["random_search", "median_score"]
+df_luck["luck_factor"] = (
+    df_luck["median_score"] - df_luck["best_score"]
+) / _random_median
+df_luck["misfortune_factor"] = (
+    df_luck["worst_score"] - df_luck["median_score"]
+) / _random_median
+
 df_luck["rank_best"] = (
     df_results_sorted.groupby("selection_source")["wasserstein_seasonal"].idxmin() + 1
 )
@@ -226,7 +249,12 @@ print(df_scores_summary)
 # %% 6. Pareto scatter
 
 plot_results_with_pareto(
-    df_results, "wasserstein_seasonal", "wasserstein", "SSWD (-)", "SWD (-)", SAVE_DIR
+    df_results,
+    "wasserstein_seasonal",
+    "wasserstein",
+    "SSWD (GWh/day)",
+    "SWD (GWh/day)",
+    SAVE_DIR,
 )
 
 # %% 7. Per-variable plots (optional)
@@ -290,6 +318,186 @@ make_summary_figure(
     multi_country=MULTI_COUNTRY,
     n_countries=len(MATCH_COUNTRIES),
 )
+
+# %% 9b. Summary figure (presentation version)
+# NOTE: Temporary, not to be used for paper
+
+import matplotlib.gridspec as gridspec
+import matplotlib.pyplot as plt
+from matplotlib.patches import Patch
+
+from cluster_weather_years.evaluation_plot_helpers import (
+    _plot_panel_b_qqmae,
+    _plot_panel_c_corrdev,
+    fontsize,
+    fontsize_title,
+)
+
+
+def _plot_panel_a_swd_thin(ax, mode, metrics, cfg, bar_h=0.125):
+    """Same as _plot_panel_a_swd but with configurable (thinner) bar height."""
+    n_methods = len(cfg["labels"])
+    y = np.arange(n_methods) * 0.66
+
+    if mode == "seasonal":
+        for i, (key, label) in enumerate(zip(cfg["keys"], cfg["labels"])):
+            for j, (season, hatch) in enumerate(
+                zip(metrics["season_list"], [".", "/"])
+            ):
+                val = metrics["swd_seasonal"][season][key]
+                ax.barh(
+                    y[i] + (j - 0.5) * bar_h,
+                    val,
+                    bar_h,
+                    color=cfg["colors"][label],
+                    hatch=hatch,
+                    edgecolor="white",
+                )
+                ax.text(
+                    val + 0.002,
+                    y[i] + (j - 0.5) * bar_h,
+                    f"{val:.2f}",
+                    va="center",
+                    fontsize=fontsize - 3,
+                    color="0.3",
+                )
+            val_sswd = metrics["sswd"][key]
+            ax.barh(
+                y[i] + bar_h + bar_h / 2,
+                val_sswd,
+                bar_h,
+                color=cfg["colors"][label],
+                edgecolor="white",
+            )
+            ax.text(
+                val_sswd + 0.002,
+                y[i] + bar_h + bar_h / 2,
+                f"{val_sswd:.2f}",
+                va="center",
+                fontsize=fontsize - 3,
+                fontweight="bold",
+                color="0.3",
+            )
+
+        if n_methods <= 4:
+            ax.set_xlim(0, max(metrics["sswd"].values()) * 1.3)
+
+        ax.legend(
+            handles=[
+                Patch(
+                    facecolor="0.6",
+                    edgecolor="white",
+                    hatch="..",
+                    label=metrics["season_list"][0],
+                ),
+                Patch(
+                    facecolor="0.6",
+                    edgecolor="white",
+                    hatch="///",
+                    label=metrics["season_list"][1],
+                ),
+                Patch(facecolor="0.6", edgecolor="white", label="SSWD (max)"),
+            ],
+            loc="upper right",
+            fontsize=fontsize,
+        )
+        ax.set_title(
+            "(a) Sliced Wasserstein distance, per season",
+            fontweight="bold",
+            fontsize=fontsize_title,
+        )
+    else:
+        for i, (key, label) in enumerate(zip(cfg["keys"], cfg["labels"])):
+            val = metrics["swd_annual"][key]
+            ax.barh(y[i], val, bar_h, color=cfg["colors"][label], edgecolor="white")
+            ax.text(
+                val + 0.002,
+                y[i],
+                f"{val:.2f}",
+                va="center",
+                fontsize=fontsize - 3,
+                fontweight="bold",
+                color="0.3",
+            )
+        ax.set_title(
+            "(a) Sliced Wasserstein distance — annual",
+            fontweight="bold",
+            fontsize=fontsize_title,
+        )
+
+    ax.set_yticks(y)
+    ax.set_yticklabels(cfg["labels"], fontsize=fontsize)
+    ax.invert_yaxis()
+    ax.set_xlabel("SWD (GWh/day)", fontsize=fontsize)
+
+
+def make_summary_figure_presentation(
+    mode: str,
+    metrics: dict,
+    cfg: dict,
+    plot_vars: list,
+    save_dir: str,
+    multi_country: bool = False,
+    n_countries: int = 1,
+    methods_to_keep=("Best SA Subset", "ERAA25 Subset"),
+):
+    """Presentation variant of make_summary_figure.
+
+    - Only plots the methods in ``methods_to_keep`` (order preserved from cfg).
+    - Saves the PDF with a transparent background.
+    """
+    kept = [i for i, k in enumerate(cfg["keys"]) if k in methods_to_keep]
+    cfg_filt = {
+        "keys": [cfg["keys"][i] for i in kept],
+        "labels": [cfg["labels"][i] for i in kept],
+        "colors": {cfg["labels"][i]: cfg["colors"][cfg["labels"][i]] for i in kept},
+    }
+
+    fig = plt.figure(figsize=(13, 9.5), dpi=300)
+    gs = gridspec.GridSpec(2, 2, height_ratios=[0.78, 1], hspace=0.38, wspace=0.3)
+    ax_a = fig.add_subplot(gs[0, :])
+    ax_b = fig.add_subplot(gs[1, 0])
+    ax_c = fig.add_subplot(gs[1, 1])
+
+    _plot_panel_a_swd_thin(ax_a, mode, metrics, cfg_filt)
+    _plot_panel_b_qqmae(
+        ax_b, mode, metrics, cfg_filt, plot_vars, multi_country, n_countries
+    )
+    _plot_panel_c_corrdev(ax_c, mode, metrics, cfg_filt)
+
+    handles = [
+        plt.Rectangle((0, 0), 1, 1, fc=cfg_filt["colors"][m])
+        for m in cfg_filt["labels"]
+    ]
+    fig.legend(
+        handles,
+        cfg_filt["labels"],
+        loc="lower center",
+        ncol=len(cfg_filt["labels"]),
+        fontsize=fontsize,
+        bbox_to_anchor=(0.5, -0.075),
+        frameon=True,
+    )
+    fig.tight_layout()
+    plt.savefig(
+        os.path.join(save_dir, f"summary_figure_{mode}_presentation.png"),
+        bbox_inches="tight",
+        dpi=300,
+        transparent=True,
+    )
+    return fig
+
+
+fig = make_summary_figure_presentation(
+    mode="seasonal",  # or "annual"
+    metrics=metrics,
+    cfg=cfg,
+    plot_vars=PLOT_VARS,
+    save_dir=SAVE_DIR,
+    multi_country=True,
+    n_countries=len(MATCH_COUNTRIES),
+)
+plt.show()
 
 # %% 10. Equivalent-to-N-years (optional)
 

@@ -41,8 +41,8 @@ from cluster_weather_years.filtered_random_search import build_random_df
 METHOD_CONFIG = [
     ("Best SA Subset", "SA", "#4daf4a"),  # green
     ("Best K-Medoids Subset", "K-Medoids", "#984ea3"),  # purple
-    ("Best FRS Subset", "FRS", "#ff7f00"),  # orange
     ("Best Random Search Subset", "Random", "#377eb8"),  # blue
+    ("Best FRS Subset", "FRS", "#ff7f00"),  # orange
     ("ERAA25 Subset", "ERAA25 (36 yr)", "#e41a1c"),  # red
 ]
 
@@ -58,12 +58,12 @@ _KEY_TO_LABEL = {key: label for key, label, _ in METHOD_CONFIG}
 _KEY_TO_COLOR = {key: color for key, _, color in METHOD_CONFIG}
 
 _VAR_SUFFIX_MAP = {
-    "OFF_prod": "Offshore \n wind prod.",
-    "ON_prod": "Onshore \n wind prod.",
+    "OFF_prod": "Offshore\n wind prod.",
+    "ON_prod": "Onshore\n wind prod.",
     "SOLAR_prod": "Solar prod.",
-    "HRO_prod": "Run-of-river \n prod.",
-    "HPO_prod": "Pondage \n run-of-river prod.",
-    "HRG_prod": "Reservoir \n hydro prod.",
+    "HRO_prod": "ROR prod.",
+    "HPO_prod": "Pondage \n ROR prod.",
+    "HRG_prod": "Res. hydro \n prod.",
     "Demand": "Demand",
     "Residual_load": "Residual \n load",
 }
@@ -220,12 +220,8 @@ def plot_results_with_pareto(
             alpha=0.8,
         )
 
-    ax.set_xlabel(
-        f"{label_m1} (lower is better)" if label_m1 else f"{metric_1} (lower is better)"
-    )
-    ax.set_ylabel(
-        f"{label_m2} (lower is better)" if label_m2 else f"{metric_2} (lower is better)"
-    )
+    ax.set_xlabel(f"{label_m1}" if label_m1 else f"{metric_1}")
+    ax.set_ylabel(f"{label_m2}" if label_m2 else f"{metric_2}")
     _method_order = [label for _, label, _ in METHOD_CONFIG]
     handles, labels = ax.get_legend_handles_labels()
     hl = {lbl: h for h, lbl in zip(handles, labels)}
@@ -651,6 +647,10 @@ def _season_legend_handles(season_list: list) -> list:
     ]
 
 
+fontsize = 15
+fontsize_title = 20
+
+
 def _plot_panel_a_swd(ax, mode: str, metrics: dict, cfg: dict):
     """(a) Horizontal bar chart: SWD per season + SSWD, or annual SWD."""
     n_methods = len(cfg["labels"])
@@ -676,7 +676,7 @@ def _plot_panel_a_swd(ax, mode: str, metrics: dict, cfg: dict):
                     y[i] + (j - 0.5) * bar_h,
                     f"{val:.2f}",
                     va="center",
-                    fontsize=9,
+                    fontsize=fontsize - 3,
                     color="0.3",
                 )
             val_sswd = metrics["sswd"][key]
@@ -692,7 +692,7 @@ def _plot_panel_a_swd(ax, mode: str, metrics: dict, cfg: dict):
                 y[i] + bar_h + bar_h / 2,
                 f"{val_sswd:.2f}",
                 va="center",
-                fontsize=9,
+                fontsize=fontsize - 3,
                 fontweight="bold",
                 color="0.3",
             )
@@ -718,13 +718,13 @@ def _plot_panel_a_swd(ax, mode: str, metrics: dict, cfg: dict):
                 Patch(facecolor="0.6", edgecolor="white", label="SSWD (max)"),
             ],
             loc="upper right",
-            fontsize=10,
+            fontsize=fontsize,
         )
 
         ax.set_title(
             "(a) Sliced Wasserstein distance, per season",
             fontweight="bold",
-            fontsize=12,
+            fontsize=fontsize_title,
         )
     else:
         for i, (key, label) in enumerate(zip(cfg["keys"], cfg["labels"])):
@@ -735,18 +735,20 @@ def _plot_panel_a_swd(ax, mode: str, metrics: dict, cfg: dict):
                 y[i],
                 f"{val:.2f}",
                 va="center",
-                fontsize=9,
+                fontsize=fontsize - 3,
                 fontweight="bold",
                 color="0.3",
             )
         ax.set_title(
-            "(a) Sliced Wasserstein distance — annual", fontweight="bold", fontsize=12
+            "(a) Sliced Wasserstein distance — annual",
+            fontweight="bold",
+            fontsize=fontsize_title,
         )
 
     ax.set_yticks(y)
-    ax.set_yticklabels(cfg["labels"], fontsize=11)
+    ax.set_yticklabels(cfg["labels"], fontsize=fontsize)
     ax.invert_yaxis()
-    ax.set_xlabel("SWD (−)\n(lower = better)")
+    ax.set_xlabel("SWD (GWh/day)", fontsize=fontsize)
 
 
 def _plot_panel_b_qqmae(
@@ -790,7 +792,8 @@ def _plot_panel_b_qqmae(
             ax.legend(
                 handles=_season_legend_handles(metrics["season_list"]),
                 loc="best",
-                fontsize=7,
+                # bbox_to_anchor=(0.0, 0.95),
+                fontsize=fontsize,
                 framealpha=0.8,
             )
         else:
@@ -820,21 +823,30 @@ def _plot_panel_b_qqmae(
                     zorder=2,
                 )
         ax.set_xticks(xv)
-        ax.set_xticklabels(vartypes, fontsize=8, rotation=45, ha="right")
+        # ax.set_xticklabels(vartypes, fontsize=fontsize - 3, rotation=90, ha="right")
+        ax.set_xticklabels(vartypes, fontsize=fontsize - 1.5, rotation=90, ha="center")
         ax.set_ylabel(
-            f"QQ-MAE sum over {n_countries} countries (GWh/day)\n(lower = better)",
+            "QQ-MAE, country-sum (GWh/day)",
+            fontsize=fontsize,
             color="0.4",
         )
     else:
-        var_labels = [pretty_var(v).replace(": ", ":\n") for v in plot_vars]
-        xv = np.arange(len(plot_vars))
         if mode == "seasonal":
+            grp = {
+                sn: {
+                    k: _group_qq_mae_by_vartype(metrics["qq_mae_seasonal"][sn][k])
+                    for k in cfg["keys"]
+                }
+                for sn in metrics["season_list"]
+            }
+            vartypes = list(grp[metrics["season_list"][0]][cfg["keys"][0]].keys())
+            xv = np.arange(len(vartypes))
             for i, (key, label) in enumerate(zip(cfg["keys"], cfg["labels"])):
                 off = (i - (n_methods - 1) / 2) * 0.13
                 for sn in metrics["season_list"]:
                     ax.scatter(
                         xv + off,
-                        [metrics["qq_mae_seasonal"][sn][key][v] for v in plot_vars],
+                        [grp[sn][key][vt] for vt in vartypes],
                         color=cfg["colors"][label],
                         s=sizes[sn],
                         zorder=3,
@@ -844,13 +856,19 @@ def _plot_panel_b_qqmae(
             ax.legend(
                 handles=_season_legend_handles(metrics["season_list"]),
                 loc="best",
-                fontsize=7,
+                fontsize=fontsize,
                 framealpha=0.8,
             )
         else:
+            grp = {
+                k: _group_qq_mae_by_vartype(metrics["qq_mae_annual"][k])
+                for k in cfg["keys"]
+            }
+            vartypes = list(next(iter(grp.values())).keys())
+            xv = np.arange(len(vartypes))
             for i, (key, label) in enumerate(zip(cfg["keys"], cfg["labels"])):
                 off = (i - (n_methods - 1) / 2) * 0.13
-                vals = [metrics["qq_mae_annual"][key][v] for v in plot_vars]
+                vals = [grp[key][vt] for vt in vartypes]
                 ax.scatter(
                     xv + off,
                     vals,
@@ -868,24 +886,25 @@ def _plot_panel_b_qqmae(
                     zorder=2,
                 )
         ax.set_xticks(xv)
-        ax.set_xticklabels(var_labels, fontsize=8)
-        ax.set_ylabel("QQ-MAE (GWh/day)\n(lower = better)", color="0.4")
+        ax.set_xticklabels(vartypes, fontsize=fontsize - 1.5, rotation=90, ha="center")
+        ax.set_ylabel("QQ-MAE (GWh/day)", color="0.4")
 
     ax.tick_params(colors="0.4")
     ax.set_title(
         "(b) Deviations in marginal distributions",
         fontweight="bold",
-        fontsize=10,
+        fontsize=fontsize,
         color="0.4",
+        y=1.1,
     )
     ax.text(
         0.5,
-        1.0,
-        "contributing to SWD via univariate projections",
+        1.1,
+        "contribute to SWD via univariate projections",
+        fontsize=fontsize - 2,
         transform=ax.transAxes,
         ha="center",
         va="top",
-        fontsize=7.5,
         color="0.5",
         style="italic",
     )
@@ -911,7 +930,15 @@ def _plot_panel_c_corrdev(ax, mode: str, metrics: dict, cfg: dict):
                 linewidth=0.5,
             )
         ax.set_xticks(x_c)
-        ax.set_xticklabels(metrics["season_list"], fontsize=9)
+        ax.set_xticklabels(metrics["season_list"], fontsize=fontsize)
+        # set ylim to 1.25 times the max value to fit title
+        max_val = max(
+            metrics["corr_dev"][key][sn]
+            for key in cfg["keys"]
+            for sn in metrics["season_list"]
+        )
+        ax.set_ylim(0, max_val * 1.25)
+
     else:
         x_c = np.arange(n_methods)
         for i, (key, label) in enumerate(zip(cfg["keys"], cfg["labels"])):
@@ -925,24 +952,25 @@ def _plot_panel_c_corrdev(ax, mode: str, metrics: dict, cfg: dict):
                 linewidth=0.5,
             )
         ax.set_xticks(x_c)
-        ax.set_xticklabels(cfg["labels"], fontsize=9, rotation=30, ha="right")
+        ax.set_xticklabels(cfg["labels"], fontsize=fontsize, rotation=30, ha="right")
 
-    ax.set_ylabel("Mean |Δcorrelation| (−)\n(lower = better)", color="0.4")
+    ax.set_ylabel("Mean |Δcorrelation| (−)", color="0.4")
     ax.tick_params(colors="0.4")
     ax.set_title(
         "(c) Deviations in correlation structure",
         fontweight="bold",
-        fontsize=10,
+        fontsize=fontsize,
         color="0.4",
+        y=1.1,
     )
     ax.text(
         0.5,
-        1.0,
-        "contributing to SWD via cross-variable projections",
+        1.1,
+        "contribute to SWD via cross-variable projections",
         transform=ax.transAxes,
         ha="center",
         va="top",
-        fontsize=7.5,
+        fontsize=fontsize - 2,
         color="0.5",
         style="italic",
     )
@@ -963,7 +991,7 @@ def make_summary_figure(
     ----------
     mode : "seasonal" | "annual"
     """
-    fig = plt.figure(figsize=(13, 7.5), dpi=300)
+    fig = plt.figure(figsize=(13, 9), dpi=300)
     gs = gridspec.GridSpec(2, 2, height_ratios=[1.2, 1], hspace=0.38, wspace=0.3)
     ax_a = fig.add_subplot(gs[0, :])
     ax_b = fig.add_subplot(gs[1, 0])
@@ -979,8 +1007,8 @@ def make_summary_figure(
         cfg["labels"],
         loc="lower center",
         ncol=len(cfg["labels"]),
-        fontsize=9,
-        bbox_to_anchor=(0.5, -0.05),
+        fontsize=fontsize,
+        bbox_to_anchor=(0.5, -0.075),
         frameon=True,
     )
     fig.tight_layout()

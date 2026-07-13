@@ -756,11 +756,16 @@ def run_evaluation(
             worst_score="max",
         )
         .assign(
+            # luck_factor=lambda df: (
+            #     (df["median_score"] - df["best_score"]) / df["best_score"]
+            # ),
             luck_factor=lambda df: (
-                (df["median_score"] - df["best_score"]) / df["best_score"]
+                (df["median_score"] - df["best_score"])
+                / df.loc["random_search", "median_score"]
             ),
             misfortune_factor=lambda df: (
-                (df["worst_score"] - df["median_score"]) / df["median_score"]
+                (df["worst_score"] - df["median_score"])
+                / df.loc["random_search", "median_score"]
             ),
         )
         .sort_values("best_score")
