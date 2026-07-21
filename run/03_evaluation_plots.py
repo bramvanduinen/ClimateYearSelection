@@ -29,6 +29,7 @@ from cluster_weather_years.evaluation_plot_helpers import (
     _filter_season,
     _plot_correlation_panels,
     build_summary_config,
+    compare_random_30_vs_36,
     make_summary_figure,
     plot_distributions,
     plot_ecdf,
@@ -48,19 +49,22 @@ N_PROJECTIONS = 200  # number of random projections for SWD. Match this to the v
 SEED = 42  # reproducibility seed for SWD
 INCLUDE_ERAA25 = True  # set False to exclude ERAA25 from all plots
 MULTI_COUNTRY = (
-    True  # True: panel (b) groups variables by type and sums QQ-MAE across countries
+    False  # True: panel (b) groups variables by type and sums QQ-MAE across countries
 )
 PLOT_EVERYTHING = False  # set False to skip distribution/QQ/correlation plots and only compute scores + summary tables (faster)
 CALC_EQUIVALENT_TO_N_YEARS = False  # If True, compute how many random draws would be needed to match the best subset's SWD score (rough estimate of "equivalent number of years" for that method)
+COMPARE_30_VS_36 = (
+    False  # If True, compare 30yr vs 36yr random draw quality. Only had to be run once.
+)
 OLD_NAMING = True
 
 # paper runs (initial submission)
 # RUNNAME_ = "run_Europe_30y_hydro_20260306_1159"
 # RUNNAME_ = "run_Europe_5y_hydro_20260323_1608"
-# RUNNAME_ = "run_NL_30y_hydro_20260319_1631"
+RUNNAME_ = "run_NL_30y_hydro_20260319_1631"
 
 # newer runs (LSTR)
-RUNNAME_ = "NL_30y_hydro_lstr_test_20260519_0818"
+# RUNNAME_ = "NL_30y_hydro_lstr_test_20260519_0818"
 SELECTED_YEARS = 30
 # HYDROLOGICAL_YEARS = range(2016, 2044)
 
@@ -505,5 +509,8 @@ if CALC_EQUIVALENT_TO_N_YEARS:
     num_years_range, all_scores = plot_equivalent_to_n_years(
         df_results, df_ref, vars_non_nan, SELECTED_YEARS, SAVE_DIR
     )
+
+if COMPARE_30_VS_36:
+    all_scores = compare_random_30_vs_36(df_ref, vars_non_nan)
 
 # %%

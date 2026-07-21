@@ -133,8 +133,13 @@ def simulated_annealing_selection(
         close = (neighbour_score / current_score < 1.1) or (
             random_check < np.exp(-delta_init / temp)
         )
-        if close and (
-            scoring_fn == wasserstein_seasonal_score or scoring_fn == wasserstein_score
+        if (
+            n_projections_full is not None
+            and close
+            and (
+                scoring_fn == wasserstein_seasonal_score
+                or scoring_fn == wasserstein_score
+            )
         ):
             # re-calculate score with higher precision
             neighbour_score = scoring_fn(

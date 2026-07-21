@@ -25,6 +25,7 @@ from RUN_SETTINGS import (
     NUM_TO_SELECT,
     P_THRES,
     PARAM_GRID,
+    PERFORM_TWO_STEP,
     RUN_FRS,
     RUN_SA,
     RUNNAME,
@@ -63,6 +64,10 @@ from cluster_weather_years.k_medoids_stochastic import k_medoids_stochastic
 from cluster_weather_years.sa import run_sa
 
 # pylint: enable=import-error
+
+# Number of projections for the refinement pass, or None to skip it entirely. Every method
+# treats None as "rank on the N_PROJECTIONS_INIT scores alone".
+N_PROJECTIONS_REFINE = N_PROJECTIONS_FULL if PERFORM_TWO_STEP else None
 
 
 def _parse_model_years(df: pd.DataFrame) -> pd.DataFrame:
@@ -182,7 +187,8 @@ def _draw_random_batch(args):
 
     Two-step scoring: all draws are first evaluated cheaply (n_projections_init), then
     the top 10% are re-scored at full resolution (n_projections_full). The best of those
-    full-resolution top-10% candidates is returned.
+    full-resolution top-10% candidates is returned. If n_projections_full is None the
+    re-scoring is skipped and the best is taken on the n_projections_init scores alone.
     """
     (
         seed,
@@ -221,16 +227,18 @@ def _draw_random_batch(args):
     best_result = None
     for idx in top_indices:
         result = all_results[idx]
-        full_score = score_fn(
-            df=df_ref,
-            combos=result["model_years"],
-            variables=vars_non_nan,
-            year_col=YEAR_COL,
-            n_projections=n_projections_full,
-        )
-        result[score_key] = float(full_score)
-        if full_score < best_score:
-            best_score = float(full_score)
+        if n_projections_full is not None:
+            result[score_key] = float(
+                score_fn(
+                    df=df_ref,
+                    combos=result["model_years"],
+                    variables=vars_non_nan,
+                    year_col=YEAR_COL,
+                    n_projections=n_projections_full,
+                )
+            )
+        if result[score_key] < best_score:
+            best_score = float(result[score_key])
             best_result = result
 
     return best_result, median_score
@@ -262,7 +270,7 @@ def run_random_search(model_years, vars_non_nan, num_draws_total, output_dir_ran
             NUM_TO_SELECT,
             vars_non_nan,
             N_PROJECTIONS_INIT,
-            N_PROJECTIONS_FULL,
+            N_PROJECTIONS_REFINE,
         )
         for seed in range(NUM_EXPERIMENTS)
     ]
@@ -331,7 +339,7 @@ def run_kmedoids(df_ref, vars_non_nan, sa_total_iters, output_dir_kmedoids):
         year_col=YEAR_COL,
         SEASONAL=SEASONAL,
         n_projections_init=N_PROJECTIONS_INIT,
-        n_projections_full=N_PROJECTIONS_FULL,
+        n_projections_full=N_PROJECTIONS_REFINE,
         seed_offset=SEED_OFFSET,
     )
     logger.info(f"K-Medoids completed. Results saved to {output_dir_kmedoids}.")
@@ -354,7 +362,7 @@ def run_simulated_annealing(df_ref, vars_non_nan, output_dir_sa):
             "output_dir_sa": output_dir_sa,
             "YEAR_COL": YEAR_COL,
             "n_projections_init": N_PROJECTIONS_INIT,
-            "n_projections_full": N_PROJECTIONS_FULL,
+            "n_projections_full": N_PROJECTIONS_REFINE,
         }
         # Distribute cooling rates fairly across NUM_EXPERIMENTS unique seeds:
         # experiment i gets cooling_rates[i * n_cooling_rates // NUM_EXPERIMENTS]
@@ -498,7 +506,7 @@ def run_filtered_random_search(
                 vars_non_nan,
                 True,  # skip_check
                 N_PROJECTIONS_INIT,
-                N_PROJECTIONS_FULL,
+                N_PROJECTIONS_REFINE,
             ),
         ) as ex:
             hbf_batch_iter = ex.map(
@@ -510,25 +518,34 @@ def run_filtered_random_search(
                 [SEASONAL] * n_batches,
             )
 
+            n_passed_total = 0
             for batch_idx, (
                 batch_pass_records,
                 batch_fail_records,
                 _pass_years,
+                batch_stats,
             ) in enumerate(tqdm(hbf_batch_iter, total=n_batches)):
                 frs_results_fail.extend(batch_fail_records)
+                n_passed = batch_stats["n_passed"]
+                n_drawn = batch_stats["n_drawn"]
+                n_passed_total += n_passed
                 if batch_pass_records:
+                    median = batch_stats["median"]
                     best = min(batch_pass_records, key=lambda r: r[score_col])
-                    median = float(
-                        np.median([r[score_col] for r in batch_pass_records])
-                    )
                     best[f"{score_col}_median"] = median
+                    best["n_passed"] = n_passed
+                    best["n_drawn"] = n_drawn
 
                     frs_results_pass.append(best)
                     logger.info(
-                        f"Batch {batch_idx} done — best {score_col} = {best[score_col]:.4f}, median = {median:.4f}"
+                        f"Batch {batch_idx} done — {n_passed}/{n_drawn} draws passed "
+                        f"({n_passed / n_drawn:.3%}), best {score_col} = {best[score_col]:.4f}, "
+                        f"median = {median:.4f}"
                     )
                 else:
-                    logger.info(f"Batch {batch_idx} done — no passing draws")
+                    logger.info(
+                        f"Batch {batch_idx} done — no passing draws (0/{n_drawn})"
+                    )
 
         df_frs_results = pd.DataFrame(frs_results_pass)
         if not df_frs_results.empty:
@@ -538,8 +555,18 @@ def run_filtered_random_search(
         df_frs_results["selection_source"] = "FRS"
         df_frs_fail = pd.DataFrame(frs_results_fail)[["fail_check", "fail_var"]]
 
-        skip_rate = len(df_frs_fail) / frs_iterations
-        logger.info(f"Skip rate: {skip_rate:.3f}")
+        # frs_total, not frs_iterations: batch_size is rounded up, so frs_total is what
+        # was actually drawn and keeps skip rate and pass rate summing to 1.
+        skip_rate = len(df_frs_fail) / frs_total
+        logger.info(
+            f"Skip rate: {skip_rate:.3f} — {n_passed_total} of {frs_total} draws passed "
+            f"the filter and reached SSWD evaluation ({n_passed_total / frs_total:.4%})"
+        )
+        if n_passed_total + len(df_frs_fail) != frs_total:
+            logger.warning(
+                f"Draw accounting mismatch: {n_passed_total} passed + "
+                f"{len(df_frs_fail)} failed != {frs_total} drawn"
+            )
 
         if not df_frs_results.empty:
             overall_best = df_frs_results.iloc[0]

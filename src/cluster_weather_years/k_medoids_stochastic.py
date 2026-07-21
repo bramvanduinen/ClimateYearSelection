@@ -90,22 +90,25 @@ def _run_kmedoids_batch(args):
     median_score = float(np.median(all_scores))
 
     # Re-score top 10% of candidates with full resolution
+    # (skipped when n_projections_full is None; ranking then uses the init scores alone)
     k = max(1, int(len(all_results) * 0.1))
     top_indices = np.argsort(all_scores)[:k]
     best_score = float("inf")
     best_result: dict | None = None
     for idx in top_indices:
         result = all_results[idx]
-        full_score = score_fn(
-            df=df_ref,
-            combos=result["model_years"],
-            variables=vars_non_nan,
-            year_col=year_col,
-            n_projections=n_projections_full,
-        )
-        result[score_key] = float(full_score)
-        if full_score < best_score:
-            best_score = float(full_score)
+        if n_projections_full is not None:
+            result[score_key] = float(
+                score_fn(
+                    df=df_ref,
+                    combos=result["model_years"],
+                    variables=vars_non_nan,
+                    year_col=year_col,
+                    n_projections=n_projections_full,
+                )
+            )
+        if result[score_key] < best_score:
+            best_score = float(result[score_key])
             best_result = result
 
     return best_result, median_score

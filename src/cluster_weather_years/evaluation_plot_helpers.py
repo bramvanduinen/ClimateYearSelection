@@ -1086,7 +1086,7 @@ def plot_equivalent_to_n_years(
     )
     plt.plot(list(num_years_range), median_scores, color="red")
     plt.axhline(
-        df_results["wasserstein"].min(),
+        df_results["wasserstein_seasonal"].min(),
         color="green",
         label=f"Best score from year selection ({selected_years} years)",
     )
@@ -1102,3 +1102,55 @@ def plot_equivalent_to_n_years(
     )
 
     return num_years_range, all_scores
+
+
+def compare_random_30_vs_36(
+    df_ref: pd.DataFrame,
+    vars_non_nan: list,
+    n_repeats: int = 25,
+    n_projections: int = 50,
+    sizes: tuple = (30, 36),
+):
+    """One-off: quantify the SSWD difference between random subsets of 30 vs 36 years.
+
+    Same machinery as plot_equivalent_to_n_years, restricted to two subset sizes.
+    """
+    hydro_years = range(2016, 2046)
+    model_years = list(product(MODELS, hydro_years))
+
+    all_scores = {ny: [] for ny in sizes}
+    for repeat in tqdm(range(n_repeats)):
+        rng = np.random.default_rng(42 + repeat)
+        for num_years in sizes:
+            random_my = build_random_df(
+                df_ref, model_years, num_years, rng, "Hydrological_year"
+            )[1]
+            score = wasserstein_seasonal_score(
+                df_ref,
+                random_my,
+                vars_non_nan,
+                year_col="Hydrological_year",
+                n_projections=n_projections,
+            )
+            all_scores[num_years].append(score)
+
+    s30, s36 = (np.asarray(all_scores[ny]) for ny in sizes)
+    print(f"\nRandom-draw SSWD, {n_repeats} repeats, n_projections={n_projections}")
+    for ny, s in zip(sizes, (s30, s36)):
+        print(
+            f"  {ny} years: median={np.median(s):.4f}  mean={np.mean(s):.4f}  "
+            f"std={np.std(s):.4f}  min={np.min(s):.4f}  max={np.max(s):.4f}"
+        )
+    d_med = np.median(s30) - np.median(s36)
+    d_mean = np.mean(s30) - np.mean(s36)
+    print(
+        f"  Δ median (30−36): {d_med:.4f}  = {100 * d_med / np.median(s30):.1f}% of 30-yr median"
+    )
+    print(
+        f"  Δ mean   (30−36): {d_mean:.4f}  = {100 * d_mean / np.mean(s30):.1f}% of 30-yr mean"
+    )
+    print(
+        f"  Overlap: {np.mean(s36 >= np.median(s30)) * 100:.0f}% of 36-yr draws score "
+        f"worse than the median 30-yr draw"
+    )
+    return all_scores

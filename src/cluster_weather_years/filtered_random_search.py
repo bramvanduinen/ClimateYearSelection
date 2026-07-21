@@ -7,7 +7,10 @@ from cluster_weather_years.constants import (
     PROBS,
     SEASONS,
 )
-from cluster_weather_years.cost_functions import wasserstein_score, wasserstein_seasonal_score
+from cluster_weather_years.cost_functions import (
+    wasserstein_score,
+    wasserstein_seasonal_score,
+)
 from cluster_weather_years.helper_functions import (
     build_df_from_modelyears,
     draw_random_modelyears,
@@ -224,8 +227,8 @@ def score_df(
         qq_diff = abs(q_sub - q_ref)
 
         qq_mae.append(float(qq_diff.mean()))
-        qq_mae_high.append(float(qq_diff[:10].mean()))
-        qq_mae_low.append(float(qq_diff[-10:].mean()))
+        qq_mae_high.append(float(qq_diff[-10:].mean()))
+        qq_mae_low.append(float(qq_diff[:10].mean()))
 
     vars_non_nan = [var for var in columns if not df_ref[var].isna().all()]
     wasserstein = sliced_wasserstein_distance(
@@ -412,11 +415,23 @@ def init_worker(
 
 
 def run_batch(batch_idx, batch_size, iterations, seed, seasonal=False):
-    """Run one batch and return (pass_records, fail_records, pass_modelyears).
+    """Run one batch and return (pass_records, fail_records, pass_modelyears, batch_stats).
+
+    batch_stats describes the whole batch, not just the returned records:
+      n_drawn  — draws attempted in this batch
+      n_passed — draws that survived the filter and reached SSWD evaluation
+      median   — median score over those n_passed draws, NaN when nothing passed
+
+    Both are taken over the full passing population, before the top-10% truncation below.
+    Note that population is the passing draws only — draws rejected by the filter are
+    never scored — so this median is not directly comparable to the random search /
+    k-medoids medians, which cover every draw.
 
     Two-step scoring: all passing draws are first scored cheaply with
     n_projections_init, then the top 10% are re-scored at full resolution
     (n_projections_full). Only those full-resolution records are returned.
+    If n_projections_full is None the re-scoring is skipped and the same top 10% is
+    returned carrying its n_projections_init scores.
     """
     score_fn = wasserstein_seasonal_score if seasonal else wasserstein_score
     score_col = "wasserstein_seasonal" if seasonal else "wasserstein"
@@ -472,31 +487,46 @@ def run_batch(batch_idx, batch_size, iterations, seed, seasonal=False):
 
     # --- Second pass: full-resolution re-scoring for top 10% of passing draws ---
     # Only the Wasserstein scores depend on n_projections, so we re-compute just those.
+    # Draws that survived the filter and therefore reached SSWD evaluation. Captured here
+    # because the top-10% truncation below shrinks pass_records.
+    n_passed = len(pass_records)
+
+    median_score = float("nan")
     if pass_records:
         init_scores = [r[score_col] for r in pass_records]
+        # Median over *every* passing draw, taken before the top-10% truncation below so it
+        # describes the whole scored population rather than just its best tail. Uses the
+        # n_projections_init scores throughout, matching random search and k-medoids.
+        median_score = float(np.median(init_scores))
         k = max(1, int(len(pass_records) * 0.1))
         top_indices = np.argsort(init_scores)[:k]
 
         top_pass_records = []
         for idx in top_indices:
             record = dict(pass_records[idx])  # shallow copy to avoid mutating original
-            record["wasserstein"] = wasserstein_score(
-                df=_G["df_ref"],
-                combos=record["model_years"],
-                variables=_G["columns"],
-                year_col=_G["year_col"],
-                n_projections=n_projections_full,
-            )
-            record["wasserstein_seasonal"] = wasserstein_seasonal_score(
-                df=_G["df_ref"],
-                combos=record["model_years"],
-                variables=_G["columns"],
-                year_col=_G["year_col"],
-                n_projections=n_projections_full,
-            )
+            if n_projections_full is not None:
+                record["wasserstein"] = wasserstein_score(
+                    df=_G["df_ref"],
+                    combos=record["model_years"],
+                    variables=_G["columns"],
+                    year_col=_G["year_col"],
+                    n_projections=n_projections_full,
+                )
+                record["wasserstein_seasonal"] = wasserstein_seasonal_score(
+                    df=_G["df_ref"],
+                    combos=record["model_years"],
+                    variables=_G["columns"],
+                    year_col=_G["year_col"],
+                    n_projections=n_projections_full,
+                )
             top_pass_records.append(record)
 
         pass_records = top_pass_records
 
     pass_modelyears = [r["model_years"] for r in pass_records]
-    return pass_records, fail_records, pass_modelyears
+    batch_stats = {
+        "n_drawn": stop - start,
+        "n_passed": n_passed,
+        "median": median_score,
+    }
+    return pass_records, fail_records, pass_modelyears, batch_stats
