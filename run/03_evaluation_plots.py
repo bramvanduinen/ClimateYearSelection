@@ -23,6 +23,8 @@ from cluster_weather_years.constants import (
 from cluster_weather_years.evaluation import (
     build_score_tables,
     compute_all_metrics,
+    format_mean_std,
+    sswd_seed_uncertainty,
 )
 from cluster_weather_years.evaluation_plot_helpers import (
     _build_plot_series,
@@ -47,9 +49,11 @@ from cluster_weather_years.helper_functions import build_df_from_modelyears
 # ═══════════════════════════════════════════════════════════════════════
 N_PROJECTIONS = 200  # number of random projections for SWD. Match this to the value used during optimization for consistency, or set higher for more accurate final scores (at the cost of longer computation time).
 SEED = 42  # reproducibility seed for SWD
+N_SEEDS_UNCERTAINTY = 25  # 25  # re-score best/median selections with seeds SEED..SEED+N-1 to quantify the projection noise on SSWD (set 0 to skip)
+N_PROJECTIONS_UNCERTAINTY = N_PROJECTIONS  # projections for that re-scoring only. Keep equal to N_PROJECTIONS for final runs (~20 min); drop to 50 for a ~5 min exploratory pass, at the cost of scores biased low and a spread roughly twice as wide.
 INCLUDE_ERAA25 = True  # set False to exclude ERAA25 from all plots
 MULTI_COUNTRY = (
-    False  # True: panel (b) groups variables by type and sums QQ-MAE across countries
+    True  # True: panel (b) groups variables by type and sums QQ-MAE across countries
 )
 PLOT_EVERYTHING = False  # set False to skip distribution/QQ/correlation plots and only compute scores + summary tables (faster)
 CALC_EQUIVALENT_TO_N_YEARS = False  # If True, compute how many random draws would be needed to match the best subset's SWD score (rough estimate of "equivalent number of years" for that method)
@@ -61,7 +65,14 @@ OLD_NAMING = True
 # paper runs (initial submission)
 # RUNNAME_ = "run_Europe_30y_hydro_20260306_1159"
 # RUNNAME_ = "run_Europe_5y_hydro_20260323_1608"
-RUNNAME_ = "run_NL_30y_hydro_20260319_1631"
+# RUNNAME_ = "run_NL_30y_hydro_20260319_1631"
+
+# paper runs (R1)
+# RUNNAME_ = "NL_30y_R1_hydro_FRS_rerun_20260722_0902"  # FRS re-run, others same as run_NL_30y_hydro_20260319_1631
+# RUNNAME_ = "EU_5y_R1_hydro_FRS_rerun_20260722_1353"
+RUNNAME_ = "EU_30yr_R1_hydro_FRS_rerun_20260724_0854"
+# RUNNAME_ = "NL_30yr_sensitivity_cr_0_999_20260723_1013"  # sentivity check for SA, cr = 0.999. Np = 50
+
 
 # newer runs (LSTR)
 # RUNNAME_ = "NL_30y_hydro_lstr_test_20260519_0818"
@@ -230,6 +241,29 @@ df_luck_summary = (
 df_luck_summary.to_csv(os.path.join(SAVE_DIR, "summary_table.csv"))
 print("Luck summary:\n", df_luck_summary)
 
+# %% 3b. Seed uncertainty on the best and median SSWD score
+
+if N_SEEDS_UNCERTAINTY:
+    print(
+        f"Re-scoring best/median selections with {N_SEEDS_UNCERTAINTY} seeds "
+        f"(n_projections={N_PROJECTIONS_UNCERTAINTY})..."
+    )
+    df_sswd_unc, sswd_unc_raw = sswd_seed_uncertainty(
+        df_results,
+        df_ref,
+        vars_non_nan,
+        SEASONS,
+        n_projections=N_PROJECTIONS_UNCERTAINTY,
+        seed=SEED,
+        n_seeds=N_SEEDS_UNCERTAINTY,
+    )
+    df_sswd_unc.to_csv(os.path.join(SAVE_DIR, "sswd_seed_uncertainty.csv"))
+    print(
+        f"SSWD over seeds {SEED}–{SEED + N_SEEDS_UNCERTAINTY - 1}, "
+        f"n_projections={N_PROJECTIONS_UNCERTAINTY} (mean ± std, GWh/day):\n"
+        f"{format_mean_std(df_sswd_unc)}"
+    )
+
 # %% 4. Compute all metrics (once)
 
 metrics = compute_all_metrics(
@@ -331,6 +365,8 @@ import matplotlib.pyplot as plt
 from matplotlib.patches import Patch
 
 from cluster_weather_years.evaluation_plot_helpers import (
+    _add_dot_row,
+    _method_legend_handles,
     _plot_panel_b_qqmae,
     _plot_panel_c_corrdev,
     fontsize,
@@ -344,9 +380,12 @@ def _plot_panel_a_swd_thin(ax, mode, metrics, cfg, bar_h=0.125):
     y = np.arange(n_methods) * 0.66
 
     if mode == "seasonal":
+        # longest bar, so the dot spacing is the same for every method
+        x_max = max(metrics["sswd"][k] for k in cfg["keys"])
         for i, (key, label) in enumerate(zip(cfg["keys"], cfg["labels"])):
+            # first season gets drawn-on dots, second the (phase-insensitive) diagonals
             for j, (season, hatch) in enumerate(
-                zip(metrics["season_list"], [".", "/"])
+                zip(metrics["season_list"], [None, "/"])
             ):
                 val = metrics["swd_seasonal"][season][key]
                 ax.barh(
@@ -357,6 +396,8 @@ def _plot_panel_a_swd_thin(ax, mode, metrics, cfg, bar_h=0.125):
                     hatch=hatch,
                     edgecolor="white",
                 )
+                if hatch is None:
+                    _add_dot_row(ax, y[i] + (j - 0.5) * bar_h, val, x_max, size=4)
                 ax.text(
                     val + 0.002,
                     y[i] + (j - 0.5) * bar_h,
@@ -455,6 +496,7 @@ def make_summary_figure_presentation(
         "keys": [cfg["keys"][i] for i in kept],
         "labels": [cfg["labels"][i] for i in kept],
         "colors": {cfg["labels"][i]: cfg["colors"][cfg["labels"][i]] for i in kept},
+        "markers": {cfg["labels"][i]: cfg["markers"][cfg["labels"][i]] for i in kept},
     }
 
     fig = plt.figure(figsize=(13, 9.5), dpi=300)
@@ -469,10 +511,7 @@ def make_summary_figure_presentation(
     )
     _plot_panel_c_corrdev(ax_c, mode, metrics, cfg_filt)
 
-    handles = [
-        plt.Rectangle((0, 0), 1, 1, fc=cfg_filt["colors"][m])
-        for m in cfg_filt["labels"]
-    ]
+    handles = _method_legend_handles(cfg_filt)
     fig.legend(
         handles,
         cfg_filt["labels"],

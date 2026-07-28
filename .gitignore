@@ -12,6 +12,7 @@ __pycache__/
 /src/cluster_weather_years/TESTVERSION_hierarchical_brute_force.py
 /run/04_evaluation_notebooks/
 /run/02_run_selections_restart.py
+/run/02_run_selections_only_SA.py
 /run/RUN_SETTINGS.py
 
 

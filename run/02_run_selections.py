@@ -29,7 +29,6 @@ from RUN_SETTINGS import (
     RUN_FRS,
     RUN_SA,
     RUNNAME,
-    RUNNAME_SA_FALLBACK,
     SEASONAL,
     SEED_OFFSET,
     TUNING_ITERATIONS,
@@ -286,6 +285,7 @@ def run_random_search(model_years, vars_non_nan, num_draws_total, output_dir_ran
             best, median_score = fut.result()
             if best is not None:
                 best[f"{sort_col}_median"] = median_score
+                best["batch"] = batch_idx
                 random_search_results.append(best)
                 logger.info(
                     f"Batch {batch_idx} done — best {sort_col} = {best[sort_col]:.4f}, median = {median_score:.4f}"
@@ -302,11 +302,9 @@ def run_random_search(model_years, vars_non_nan, num_draws_total, output_dir_ran
     )
 
     overall_best = df_random_search_results.iloc[0]
-    best_batch = int(
-        df_random_search_results.index[
-            df_random_search_results[sort_col] == overall_best[sort_col]
-        ][0]
-    )
+    # Batch that produced the best result. Read off the record itself: the frame above is
+    # score-sorted and re-indexed, so its row positions carry no batch information.
+    best_batch = int(overall_best["batch"])
     logger.info(
         f"Random Search done — best {sort_col} = {overall_best[sort_col]:.4f} "
         f"(batch {best_batch}). "
@@ -349,78 +347,78 @@ def run_kmedoids(df_ref, vars_non_nan, sa_total_iters, output_dir_kmedoids):
 def run_simulated_annealing(df_ref, vars_non_nan, output_dir_sa):
     """2. Simulated Annealing (or load fallback results)."""
     logger = logging.getLogger(__name__)
-    if RUN_SA:
-        logger.info(
-            f"##### 2. Performing Simulated Annealing in {'seasonal' if SEASONAL else 'annual'} mode... #####"
-        )
+    # if RUN_SA:
+    logger.info(
+        f"##### 2. Performing Simulated Annealing in {'seasonal' if SEASONAL else 'annual'} mode... #####"
+    )
 
-        # build jobs
-        sa_shared_inputs = {
-            "df_daily": df_ref,
-            "vars_to_match": vars_non_nan,
-            "NUM_CLUSTERS": NUM_TO_SELECT,
-            "output_dir_sa": output_dir_sa,
-            "YEAR_COL": YEAR_COL,
-            "n_projections_init": N_PROJECTIONS_INIT,
-            "n_projections_full": N_PROJECTIONS_REFINE,
+    # build jobs
+    sa_shared_inputs = {
+        "df_daily": df_ref,
+        "vars_to_match": vars_non_nan,
+        "NUM_CLUSTERS": NUM_TO_SELECT,
+        "output_dir_sa": output_dir_sa,
+        "YEAR_COL": YEAR_COL,
+        "n_projections_init": N_PROJECTIONS_INIT,
+        "n_projections_full": N_PROJECTIONS_REFINE,
+    }
+    # Distribute cooling rates fairly across NUM_EXPERIMENTS unique seeds:
+    # experiment i gets cooling_rates[i * n_cooling_rates // NUM_EXPERIMENTS]
+    cooling_rates = PARAM_GRID["cooling_rate"]
+    n_cooling_rates = len(cooling_rates)
+    metric = wasserstein_seasonal_score if SEASONAL else wasserstein_score
+    temp_start = PARAM_GRID["temp_start"][0]
+    max_iter = PARAM_GRID["max_iter"][0]
+    param_set = [
+        {
+            "seed": i + SEED_OFFSET,
+            "metric": metric,
+            "t0": temp_start,
+            "cr": cooling_rates[i * n_cooling_rates // NUM_EXPERIMENTS],
+            "mi": max_iter,
         }
-        # Distribute cooling rates fairly across NUM_EXPERIMENTS unique seeds:
-        # experiment i gets cooling_rates[i * n_cooling_rates // NUM_EXPERIMENTS]
-        cooling_rates = PARAM_GRID["cooling_rate"]
-        n_cooling_rates = len(cooling_rates)
-        metric = wasserstein_seasonal_score if SEASONAL else wasserstein_score
-        temp_start = PARAM_GRID["temp_start"][0]
-        max_iter = PARAM_GRID["max_iter"][0]
-        param_set = [
-            {
-                "seed": i + SEED_OFFSET,
-                "metric": metric,
-                "t0": temp_start,
-                "cr": cooling_rates[i * n_cooling_rates // NUM_EXPERIMENTS],
-                "mi": max_iter,
-            }
-            for i in range(NUM_EXPERIMENTS)
+        for i in range(NUM_EXPERIMENTS)
+    ]
+
+    # run jobs in parallel
+    sa_result_dicts = []
+    n_workers = min(os.cpu_count() or 1, len(param_set))
+
+    with ProcessPoolExecutor(max_workers=n_workers) as ex:
+        futures = [
+            ex.submit(run_sa, inputs=sa_shared_inputs, **job) for job in param_set
         ]
-
-        # run jobs in parallel
-        sa_result_dicts = []
-        n_workers = min(os.cpu_count() or 1, len(param_set))
-
-        with ProcessPoolExecutor(max_workers=n_workers) as ex:
-            futures = [
-                ex.submit(run_sa, inputs=sa_shared_inputs, **job) for job in param_set
-            ]
-            for i, fut in enumerate(as_completed(futures), start=1):
-                sa_result = fut.result()
-                sa_result_dicts.append(sa_result)
-                logger.info(
-                    f"Experiment {i} done: {sa_result['optimized_metric']} = {sa_result['best_score']:.2f}"
-                )
-
-        # save results
-        df_sa_results = pd.DataFrame(sa_result_dicts)
-        df_sa_results.to_csv(os.path.join(output_dir_sa, "sa_year_selections.csv"))
-        best = min(sa_result_dicts, key=lambda d: d["best_score"])
-        logger.info(f"SA run done, best score: {best['best_score']:.2f}")
-    else:
-        logger.info("##### 2. Skipping Simulated Annealing as per settings... #####")
-
-        n_workers = os.cpu_count()
-        df_sa_results = _parse_model_years(
-            pd.read_csv(
-                os.path.join(
-                    BASE_OUTPUT,
-                    f"{RUNNAME_SA_FALLBACK}/simulated_annealing/sa_year_selections.csv",
-                ),
-                index_col=0,
+        for i, fut in enumerate(as_completed(futures), start=1):
+            sa_result = fut.result()
+            sa_result_dicts.append(sa_result)
+            logger.info(
+                f"Experiment {i} done: {sa_result['optimized_metric']} = {sa_result['best_score']:.2f}"
             )
-        )
-        logger.info(
-            f"Simulated Annealing results copied from fallback run: {RUNNAME_SA_FALLBACK}"
-        )
-        df_sa_results.to_csv(
-            os.path.join(output_dir_sa, "sa_year_selections.csv"), index=True
-        )
+
+    # save results
+    df_sa_results = pd.DataFrame(sa_result_dicts)
+    df_sa_results.to_csv(os.path.join(output_dir_sa, "sa_year_selections.csv"))
+    best = min(sa_result_dicts, key=lambda d: d["best_score"])
+    logger.info(f"SA run done, best score: {best['best_score']:.2f}")
+    # else:
+    #     logger.info("##### 2. Skipping Simulated Annealing as per settings... #####")
+
+    #     n_workers = os.cpu_count()
+    #     df_sa_results = _parse_model_years(
+    #         pd.read_csv(
+    #             os.path.join(
+    #                 BASE_OUTPUT,
+    #                 f"{RUNNAME_SA_FALLBACK}/simulated_annealing/sa_year_selections.csv",
+    #             ),
+    #             index_col=0,
+    #         )
+    #     )
+    #     logger.info(
+    #         f"Simulated Annealing results copied from fallback run: {RUNNAME_SA_FALLBACK}"
+    #     )
+    #     df_sa_results.to_csv(
+    #         os.path.join(output_dir_sa, "sa_year_selections.csv"), index=True
+    #     )
     logger.info(f"Simulated Annealing results saved to {output_dir_sa}.")
 
     return df_sa_results, n_workers
@@ -443,7 +441,6 @@ def run_filtered_random_search(
             f"Running FRS with {'seasonal scoring' if SEASONAL else 'regular scoring'}..."
         )
 
-        # TODO: make sure it's reproducible, e.g., by setting seeds properly
         if SEASONAL:
             _, _, thresholds_mean, thresholds_energy = score_tuning_seasonal(
                 df_ref,
@@ -535,6 +532,9 @@ def run_filtered_random_search(
                     best[f"{score_col}_median"] = median
                     best["n_passed"] = n_passed
                     best["n_drawn"] = n_drawn
+                    # ex.map preserves input order, so this enumerate index is the batch
+                    # index handed to run_batch (and its seed).
+                    best["batch"] = batch_idx
 
                     frs_results_pass.append(best)
                     logger.info(
@@ -572,7 +572,7 @@ def run_filtered_random_search(
             overall_best = df_frs_results.iloc[0]
             logger.info(
                 f"FRS done — best {score_col} = {overall_best[score_col]:.4f} "
-                f"(batch {int(df_frs_results.index[df_frs_results[score_col] == overall_best[score_col]][0])})."
+                f"(batch {int(overall_best['batch'])})."
             )
 
         logger.info(

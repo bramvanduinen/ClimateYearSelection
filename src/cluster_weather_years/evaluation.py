@@ -179,6 +179,146 @@ def compute_all_metrics(
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Seed sensitivity of the SSWD score
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def _seasonal_arrays(df: pd.DataFrame, vars_non_nan: list, seasons: dict) -> dict:
+    """{season_name: array of the season's rows} for the given variables."""
+    return {
+        season_name: _filter_season(df, months)[vars_non_nan].to_numpy()
+        for season_name, months in seasons.items()
+    }
+
+
+def sswd_seed_ensemble(
+    X_sub_seasonal: dict,
+    X_ref_seasonal: dict,
+    n_projections: int = 200,
+    seed: int = 42,
+    n_seeds: int = 25,
+) -> np.ndarray:
+    """SSWD of one subset, recomputed with `n_seeds` different projection seeds.
+
+    Seeds are `seed, seed + 1, ..., seed + n_seeds - 1`; within one repetition all
+    seasons share the same seed, exactly as in `compute_all_metrics`.
+
+    Returns
+    -------
+    np.ndarray
+        One SSWD value (max over seasons) per seed.
+    """
+    return np.array(
+        [
+            max(
+                _compute_swd(
+                    X_sub_seasonal[season_name],
+                    X_ref_seasonal[season_name],
+                    n_projections,
+                    seed + i,
+                )
+                for season_name in X_ref_seasonal
+            )
+            for i in range(n_seeds)
+        ]
+    )
+
+
+def sswd_seed_uncertainty(
+    df_results: pd.DataFrame,
+    df_ref: pd.DataFrame,
+    vars_non_nan: list,
+    seasons: dict,
+    score_col: str = "wasserstein_seasonal",
+    n_projections: int = 200,
+    seed: int = 42,
+    n_seeds: int = 25,
+) -> tuple:
+    """Uncertainty of the best and median SSWD score, per selection_source.
+
+    A single SSWD value carries Monte-Carlo noise from the random projections. Here
+    the best- and median-ranked selection of every `selection_source` is re-scored
+    with `n_seeds` different seeds, so the spread of those repetitions quantifies
+    that noise. The selections themselves are fixed (picked on the stored
+    single-seed scores), so the spread is scoring noise only, not selection noise.
+
+    Two caveats when reporting the std as an error bar:
+
+    1. It is a *marginal* std. All subsets in one repetition share a seed, hence the
+       same projection directions, so a harsh draw lifts every method at once
+       (measured correlation across sources: 0.77-0.94). The noise therefore largely
+       cancels in a method-to-method comparison, and the marginal std overstates the
+       uncertainty on a *difference* by ~2-3x. Use the per-seed arrays in `raw` for a
+       paired comparison if a difference has to be defended.
+    2. It shrinks as ~1/sqrt(n_projections) — it measures how precisely SSWD was
+       computed, not a property of the data. Do not read it as a statistical
+       significance statement about the methods; the spread across the experiments in
+       `df_results` (see the luck/misfortune factors) is the relevant one for that.
+
+    Returns
+    -------
+    df_summary : DataFrame
+        Indexed by selection_source, with mean/std of the best and median selection
+        and the stored single-seed scores for reference.
+    raw : dict
+        {(selection_source, "best" | "median"): array of per-seed SSWD values}.
+    """
+    X_ref_seasonal = _seasonal_arrays(df_ref, vars_non_nan, seasons)
+
+    rows, raw = [], {}
+    for source, df_source in df_results.groupby("selection_source"):
+        df_source = df_source.sort_values(score_col)
+        scores = df_source[score_col].to_numpy()
+        # closest-to-median row, so an even number of rows also maps onto a real selection
+        picks = {
+            "best": df_source.iloc[0],
+            "median": df_source.iloc[
+                int(np.argmin(np.abs(scores - np.median(scores))))
+            ],
+        }
+
+        row = {
+            "selection_source": source,
+            "n_selections": len(df_source),
+            "n_seeds": n_seeds,
+            "n_projections": n_projections,
+        }
+        for kind, pick in picks.items():
+            modelyears = pick["model_years"]
+            if isinstance(modelyears, str):
+                modelyears = literal_eval(modelyears)
+            df_sub = build_df_from_modelyears(df_ref, modelyears)
+            values = sswd_seed_ensemble(
+                _seasonal_arrays(df_sub, vars_non_nan, seasons),
+                X_ref_seasonal,
+                n_projections=n_projections,
+                seed=seed,
+                n_seeds=n_seeds,
+            )
+            raw[(source, kind)] = values
+            row[f"{kind}_stored"] = float(pick[score_col])
+            row[f"{kind}_mean"] = float(np.mean(values))
+            row[f"{kind}_std"] = float(np.std(values, ddof=1))
+        rows.append(row)
+        print(f"  {source}: {n_seeds} seeds × (best, median) done ✓")
+
+    df_summary = pd.DataFrame(rows).set_index("selection_source")
+    return df_summary, raw
+
+
+def format_mean_std(df_summary: pd.DataFrame, decimals: int = 3) -> pd.DataFrame:
+    """Render `sswd_seed_uncertainty` output as "mean ± std" strings for printing."""
+    return pd.DataFrame(
+        {
+            kind: df_summary[f"{kind}_mean"].round(decimals).astype(str)
+            + " ± "
+            + df_summary[f"{kind}_std"].round(decimals).astype(str)
+            for kind in ("best", "median")
+        }
+    )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Score tables, for plotting and tables in paper
 # ─────────────────────────────────────────────────────────────────────────────
 

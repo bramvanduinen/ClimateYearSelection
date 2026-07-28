@@ -46,8 +46,11 @@ def simulated_annealing_selection(
     # --- SA control tweaks ---
     if cooling_rate < 0.99:
         REHEAT_G = 100  # iterations without new best before reheating
-    else:
+    elif cooling_rate < 0.998:
         REHEAT_G = 300
+    # HACK: else works untill cr = 0.9992!
+    else:
+        REHEAT_G = 750  # otherwise the heating overshoots.
 
     REHEAT_GAMMA = 1.8  # reheating factor
     accepted = 0

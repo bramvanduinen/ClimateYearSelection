@@ -57,6 +57,27 @@ _SOURCE_KEY_MAP = [
 _KEY_TO_LABEL = {key: label for key, label, _ in METHOD_CONFIG}
 _KEY_TO_COLOR = {key: color for key, _, color in METHOD_CONFIG}
 
+# Marker per method for the panel (b) scatter. Shape encodes the method and fill
+# encodes the season (filled = first season, open = second), so the panel stays
+# readable in greyscale and for colour-vision-deficient readers. All five shapes
+# have a usable open version, which "x" and "+" do not.
+METHOD_MARKERS = {
+    "Best SA Subset": "o",  # circle
+    "Best K-Medoids Subset": "s",  # square
+    "Best Random Search Subset": "D",  # diamond
+    "Best FRS Subset": "^",  # triangle-up
+    "ERAA25 Subset": "v",  # triangle-down
+}
+# Short-label → marker, so the Pareto scatter can share the same shape key.
+_LABEL_TO_MARKER = {label: METHOD_MARKERS[key] for key, label, _ in METHOD_CONFIG}
+# Per-shape area correction so the markers look equally heavy (a diamond of the
+# same area reads as larger, a triangle as smaller).
+_MARKER_SIZES = {"o": 46, "s": 42, "D": 34, "^": 54, "v": 54}
+# Horizontal spacing between methods within one x-category in panel (b). The two
+# seasons of a method share an x position (fill and opacity tell them apart), so
+# this only has to separate the methods.
+_METHOD_DODGE = 0.18
+
 _VAR_SUFFIX_MAP = {
     "OFF_prod": "Offshore\n wind prod.",
     "ON_prod": "Onshore\n wind prod.",
@@ -209,14 +230,18 @@ def plot_results_with_pareto(
         zorder=5,
     )
 
+    # Base marker area for the Pareto scatter; per-shape correction is scaled from
+    # _MARKER_SIZES (calibrated around "o") so every method reads equally heavy.
+    _pareto_base = 14
     for label, grp in df_results.groupby("_label"):
+        marker = _LABEL_TO_MARKER.get(label, "o")
         ax.scatter(
             grp[metric_1],
             grp[metric_2],
             color=grp["_color"].iloc[0],
             label=label,
-            marker="o",
-            s=14,
+            marker=marker,
+            s=_pareto_base * _MARKER_SIZES.get(marker, 46) / _MARKER_SIZES["o"],
             alpha=0.8,
         )
 
@@ -619,36 +644,107 @@ def build_summary_config(include_eraa25: bool = True) -> dict:
         "keys": [k for k, _, _ in methods],
         "labels": [l for _, l, _ in methods],
         "colors": {l: c for _, l, c in methods},
+        "markers": {l: METHOD_MARKERS[k] for k, l, _ in methods},
     }
 
 
-def _season_legend_handles(season_list: list) -> list:
-    """Two Line2D handles distinguishing the two seasons (circle vs cross marker)."""
+def _scatter_method_season(ax, x, y, color, marker, filled: bool = True, alpha=None):
+    """Scatter one method-season series: shape = method, fill = season.
+
+    The filled (first-season) marker is semi-transparent while the open one keeps a
+    fully opaque edge. Where the two seasons coincide the open marker is drawn last,
+    so the pair reads as a pale disc behind a crisp ring rather than as a single
+    filled point.
+    """
+    ax.scatter(
+        x,
+        y,
+        marker=marker,
+        s=_MARKER_SIZES.get(marker, 44),
+        facecolors=color if filled else "none",
+        edgecolors=color,
+        linewidths=1.1 if filled else 1.6,
+        alpha=(0.6 if filled else 1.0) if alpha is None else alpha,
+        zorder=3 if filled else 4,
+    )
+
+
+def _add_category_separators(ax, xv) -> None:
+    """Faint dotted lines halfway between x-categories, to bound each method group."""
+    for xb in np.asarray(xv, dtype=float)[:-1] + 0.5:
+        ax.axvline(xb, color="0.85", linestyle=":", linewidth=0.9, zorder=0)
+
+
+def _season_legend_handles(season_list: list, marker: str = "o") -> list:
+    """Two handles distinguishing the seasons: filled vs open marker."""
     return [
         Line2D(
             [0],
             [0],
-            marker="o",
-            color="0.5",
-            markersize=6,
+            marker=marker,
             linestyle="none",
+            markerfacecolor="0.45",
+            markeredgecolor="0.45",
+            markersize=8,
+            alpha=0.6,
             label=season_list[0],
         ),
         Line2D(
             [0],
             [0],
-            marker="x",
-            color="0.5",
-            markersize=5,
+            marker=marker,
             linestyle="none",
-            alpha=0.6,
+            markerfacecolor="none",
+            markeredgecolor="0.45",
+            markeredgewidth=1.6,
+            markersize=8,
             label=season_list[1],
         ),
     ]
 
 
+def _method_legend_handles(cfg: dict) -> list:
+    """One handle per method, carrying both its colour and its marker shape."""
+    return [
+        Line2D(
+            [0],
+            [0],
+            marker=cfg.get("markers", {}).get(label, "o"),
+            linestyle="none",
+            markerfacecolor=cfg["colors"][label],
+            markeredgecolor=cfg["colors"][label],
+            markersize=9,
+            label=label,
+        )
+        for label in cfg["labels"]
+    ]
+
+
 fontsize = 15
 fontsize_title = 20
+
+
+def _add_dot_row(ax, y_center, x_end, x_max, color="white", n_dots=24, size=5):
+    """Row of evenly spaced dots, vertically centred in a horizontal bar.
+
+    Replaces matplotlib's "." hatch: hatches are rendered in a pattern space shared
+    by the whole axes rather than per patch, so every bar samples a different phase
+    of the dot grid and the dots end up at an inconsistent height, never centred.
+    Spacing is derived from `x_max` (the longest bar) so it is identical everywhere.
+    """
+    spacing = x_max / n_dots
+    xs = np.arange(spacing / 2, x_end, spacing)
+    if len(xs) == 0 and x_end > 0:
+        # bar too short for the regular grid: keep one dot so it still reads as dotted
+        xs = np.array([x_end / 2])
+    ax.scatter(
+        xs,
+        np.full_like(xs, y_center),
+        s=size,
+        color=color,
+        zorder=3,
+        linewidths=0,
+    )
 
 
 def _plot_panel_a_swd(ax, mode: str, metrics: dict, cfg: dict):
@@ -658,19 +754,25 @@ def _plot_panel_a_swd(ax, mode: str, metrics: dict, cfg: dict):
     bar_h = 0.25
 
     if mode == "seasonal":
+        # longest bar, so the dot spacing is the same for every method
+        x_max = max(metrics["sswd"][k] for k in cfg["keys"])
         for i, (key, label) in enumerate(zip(cfg["keys"], cfg["labels"])):
+            # first season gets drawn-on dots, second the (phase-insensitive) diagonals
             for j, (season, hatch) in enumerate(
-                zip(metrics["season_list"], [".", "/"])
+                zip(metrics["season_list"], [None, "/"])
             ):
                 val = metrics["swd_seasonal"][season][key]
+                y_bar = y[i] + (j - 0.5) * bar_h
                 ax.barh(
-                    y[i] + (j - 0.5) * bar_h,
+                    y_bar,
                     val,
                     bar_h,
                     color=cfg["colors"][label],
                     hatch=hatch,
                     edgecolor="white",
                 )
+                if hatch is None:
+                    _add_dot_row(ax, y_bar, val, x_max)
                 ax.text(
                     val + 0.002,
                     y[i] + (j - 0.5) * bar_h,
@@ -760,11 +862,16 @@ def _plot_panel_b_qqmae(
     multi_country: bool = False,
     n_countries: int = 1,
 ):
-    """(b) Scatter of QQ-MAE per variable (or aggregated variable type) per method."""
+    """(b) Scatter of QQ-MAE per variable (or aggregated variable type) per method.
+
+    Marker shape encodes the method and fill encodes the season (filled = first
+    season, open = second), so the panel is readable without relying on colour.
+    """
     n_methods = len(cfg["labels"])
-    marker_styles = dict(zip(metrics["season_list"], ["o", "x"]))
-    alphas = dict(zip(metrics["season_list"], [0.55, 0.35]))
-    sizes = dict(zip(metrics["season_list"], [40, 28]))
+    markers = cfg.get("markers", {})
+    # filled for the first season, open for the second — both at the same x, since
+    # the fill and the opacity difference keep a coincident pair readable
+    filled_season = dict(zip(metrics["season_list"], [True, False]))
 
     if multi_country:
         if mode == "seasonal":
@@ -778,16 +885,15 @@ def _plot_panel_b_qqmae(
             vartypes = list(grp[metrics["season_list"][0]][cfg["keys"][0]].keys())
             xv = np.arange(len(vartypes))
             for i, (key, label) in enumerate(zip(cfg["keys"], cfg["labels"])):
-                off = (i - (n_methods - 1) / 2) * 0.13
+                off = (i - (n_methods - 1) / 2) * _METHOD_DODGE
                 for sn in metrics["season_list"]:
-                    ax.scatter(
+                    _scatter_method_season(
+                        ax,
                         xv + off,
                         [grp[sn][key][vt] for vt in vartypes],
                         color=cfg["colors"][label],
-                        s=sizes[sn],
-                        zorder=3,
-                        alpha=alphas[sn],
-                        marker=marker_styles[sn],
+                        marker=markers.get(label, "o"),
+                        filled=filled_season[sn],
                     )
             ax.legend(
                 handles=_season_legend_handles(metrics["season_list"]),
@@ -804,15 +910,14 @@ def _plot_panel_b_qqmae(
             vartypes = list(next(iter(grp.values())).keys())
             xv = np.arange(len(vartypes))
             for i, (key, label) in enumerate(zip(cfg["keys"], cfg["labels"])):
-                off = (i - (n_methods - 1) / 2) * 0.13
+                off = (i - (n_methods - 1) / 2) * _METHOD_DODGE
                 vals = [grp[key][vt] for vt in vartypes]
-                ax.scatter(
+                _scatter_method_season(
+                    ax,
                     xv + off,
                     vals,
                     color=cfg["colors"][label],
-                    s=40,
-                    zorder=3,
-                    alpha=0.55,
+                    marker=markers.get(label, "o"),
                 )
                 ax.plot(
                     xv + off,
@@ -842,16 +947,15 @@ def _plot_panel_b_qqmae(
             vartypes = list(grp[metrics["season_list"][0]][cfg["keys"][0]].keys())
             xv = np.arange(len(vartypes))
             for i, (key, label) in enumerate(zip(cfg["keys"], cfg["labels"])):
-                off = (i - (n_methods - 1) / 2) * 0.13
+                off = (i - (n_methods - 1) / 2) * _METHOD_DODGE
                 for sn in metrics["season_list"]:
-                    ax.scatter(
+                    _scatter_method_season(
+                        ax,
                         xv + off,
                         [grp[sn][key][vt] for vt in vartypes],
                         color=cfg["colors"][label],
-                        s=sizes[sn],
-                        zorder=3,
-                        alpha=alphas[sn],
-                        marker=marker_styles[sn],
+                        marker=markers.get(label, "o"),
+                        filled=filled_season[sn],
                     )
             ax.legend(
                 handles=_season_legend_handles(metrics["season_list"]),
@@ -867,15 +971,14 @@ def _plot_panel_b_qqmae(
             vartypes = list(next(iter(grp.values())).keys())
             xv = np.arange(len(vartypes))
             for i, (key, label) in enumerate(zip(cfg["keys"], cfg["labels"])):
-                off = (i - (n_methods - 1) / 2) * 0.13
+                off = (i - (n_methods - 1) / 2) * _METHOD_DODGE
                 vals = [grp[key][vt] for vt in vartypes]
-                ax.scatter(
+                _scatter_method_season(
+                    ax,
                     xv + off,
                     vals,
                     color=cfg["colors"][label],
-                    s=40,
-                    zorder=3,
-                    alpha=0.55,
+                    marker=markers.get(label, "o"),
                 )
                 ax.plot(
                     xv + off,
@@ -889,6 +992,7 @@ def _plot_panel_b_qqmae(
         ax.set_xticklabels(vartypes, fontsize=fontsize - 1.5, rotation=90, ha="center")
         ax.set_ylabel("QQ-MAE (GWh/day)", color="0.4")
 
+    _add_category_separators(ax, xv)
     ax.tick_params(colors="0.4")
     ax.set_title(
         "(b) Deviations in marginal distributions",
@@ -1001,7 +1105,8 @@ def make_summary_figure(
     _plot_panel_b_qqmae(ax_b, mode, metrics, cfg, plot_vars, multi_country, n_countries)
     _plot_panel_c_corrdev(ax_c, mode, metrics, cfg)
 
-    handles = [plt.Rectangle((0, 0), 1, 1, fc=cfg["colors"][m]) for m in cfg["labels"]]
+    # markers (not patches) so the legend doubles as the shape key for panel (b)
+    handles = _method_legend_handles(cfg)
     fig.legend(
         handles,
         cfg["labels"],
