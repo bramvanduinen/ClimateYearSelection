@@ -3,7 +3,6 @@
 import os
 
 from cluster_weather_years.constants import BASE_INPUT
-from cluster_weather_years.sa import wasserstein_score, wasserstein_seasonal_score
 
 # =============================================================================
 # GENERAL RUN SETTINGS
