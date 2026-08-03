@@ -14,6 +14,18 @@ SEASONAL = True  # True: seasonal scoring/matching  |  False: annual
 NUM_TO_SELECT = 5  # number of years to select
 YEAR_COL = "Hydrological_year"  # "Hydrological_year" or "Calendar_year"
 
+# Seed offset applied to all experiment seeds (SA, k-medoids, random draws).
+# Default = 0. Each experiment gets a unique seed by adding its batch_seed
+# (0 to NUM_EXPERIMENTS-1) to this offset.
+# Change this to get a different stochastic outcome without re-tuning other settings.
+SEED_OFFSET = 0
+
+# Number of random projections for SSWD computation (used by SA, k-medoids, FRS, and Random Search).
+# Two-step approach: cheap init projections for screening, full projections for top 10% candidates.
+PERFORM_TWO_STEP = False  # if True, first compute with N_PROJECTIONS_INIT, then refine with N_PROJECTIONS_FULL
+N_PROJECTIONS_INIT = 50
+N_PROJECTIONS_FULL = 200
+
 # =============================================================================
 # COUNTRIES TO MATCH
 # =============================================================================
@@ -34,30 +46,19 @@ MATCH_COUNTRIES = ["NL"]
 RUN_SA = True  # set False to skip SA and load results from RUNNAME_SA_FALLBACK instead
 RUNNAME_SA_FALLBACK = "FALLBACK_RUNNAME"
 
-# Total number of SA/Random Search/FRS experiments (each gets a unique seed).
+# Total number of SA/Random Search/FRS/K-medoids experiments (each gets a unique seed).
 # Cooling rates are distributed as evenly as possible across experiments:
 # e.g. 45 experiments with 3 cooling rates → 15 experiments per rate.
 NUM_EXPERIMENTS = 25
 
-# Parameter grid — cooling_rate is distributed fairly across NUM_EXPERIMENTS seeds.
+# Parameter grid: cooling_rate is distributed fairly across NUM_EXPERIMENTS seeds.
 # All other grid values must be single-element lists (only first value is used).
 
-if SEASONAL:
-    score_metric = wasserstein_seasonal_score
-else:
-    score_metric = wasserstein_score
-
 PARAM_GRID = {
-    "metric": [
-        score_metric,
-    ],
     "temp_start": [2.0],
-    "cooling_rate": [
-        0.9975,
-    ],
+    "cooling_rate": [0.9975],
     "max_iter": [5000],
 }
-
 # =============================================================================
 # FILTERED RANDOM SEARCH (FRS) SETTINGS
 # =============================================================================
@@ -71,7 +72,7 @@ TUNING_ITERATIONS = int(1e3)  # iterations used to calibrate thresholds
 FRS_ITER_MULTIPLIER = 10
 
 # =============================================================================
-# DATA SETTINGS (usually don't need to change these)
+# DATA SETTINGS
 # =============================================================================
 
 # Raw input files
