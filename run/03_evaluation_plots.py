@@ -1,7 +1,6 @@
 """
 Evaluation script for best subsets per method.
 Detailed distribution, QQ, and correlation plots comparing each best subset to the reference dataset.
-Some previously scores (QQ-MAE, SSWD) are re-computed here, to get seasonal breakdowns. Optimizing was only done on worst-season.
 Also computes summary tables of all metrics.
 Finally, computes the number of random draws needed to match the best subset's SWD score, as a rough "equivalent number of years" metric (optional, can be toggled off since it's a bit time-consuming).
 """
@@ -31,7 +30,6 @@ from cluster_weather_years.evaluation_plot_helpers import (
     _filter_season,
     _plot_correlation_panels,
     build_summary_config,
-    compare_random_30_vs_36,
     make_summary_figure,
     plot_distributions,
     plot_ecdf,
@@ -50,7 +48,7 @@ from cluster_weather_years.helper_functions import build_df_from_modelyears
 N_PROJECTIONS = 200  # number of random projections for SWD. Match this to the value used during optimization for consistency, or set higher for more accurate final scores (at the cost of longer computation time).
 SEED = 42  # reproducibility seed for SWD
 N_SEEDS_UNCERTAINTY = 25  # 25  # re-score best/median selections with seeds SEED..SEED+N-1 to quantify the projection noise on SSWD (set 0 to skip)
-N_PROJECTIONS_UNCERTAINTY = N_PROJECTIONS  # projections for that re-scoring only. Keep equal to N_PROJECTIONS for final runs (~20 min); drop to 50 for a ~5 min exploratory pass, at the cost of scores biased low and a spread roughly twice as wide.
+N_PROJECTIONS_UNCERTAINTY = N_PROJECTIONS  # projections for that re-scoring only. Keep equal to N_PROJECTIONS for final runs
 INCLUDE_ERAA25 = True  # set False to exclude ERAA25 from all plots
 MULTI_COUNTRY = (
     True  # True: panel (b) groups variables by type and sums QQ-MAE across countries
@@ -62,22 +60,10 @@ COMPARE_30_VS_36 = (
 )
 OLD_NAMING = True
 
-# paper runs (initial submission)
-# RUNNAME_ = "run_Europe_30y_hydro_20260306_1159"
-# RUNNAME_ = "run_Europe_5y_hydro_20260323_1608"
-# RUNNAME_ = "run_NL_30y_hydro_20260319_1631"
-
-# paper runs (R1)
-# RUNNAME_ = "NL_30y_R1_hydro_FRS_rerun_20260722_0902"  # FRS re-run, others same as run_NL_30y_hydro_20260319_1631
-# RUNNAME_ = "EU_5y_R1_hydro_FRS_rerun_20260722_1353"
-RUNNAME_ = "EU_30yr_R1_hydro_FRS_rerun_20260724_0854"
-# RUNNAME_ = "NL_30yr_sensitivity_cr_0_999_20260723_1013"  # sentivity check for SA, cr = 0.999. Np = 50
+RUNNAME_ = "RUNNAME"  # Enter the runname you want to evaluate here
 
 
-# newer runs (LSTR)
-# RUNNAME_ = "NL_30y_hydro_lstr_test_20260519_0818"
 SELECTED_YEARS = 30
-# HYDROLOGICAL_YEARS = range(2016, 2044)
 
 # Plot layout
 PLOT_ROWS, PLOT_COLS = 3, 2
@@ -356,200 +342,10 @@ make_summary_figure(
     multi_country=MULTI_COUNTRY,
     n_countries=len(MATCH_COUNTRIES),
 )
-
-# %% 9b. Summary figure (presentation version)
-# NOTE: Temporary, not to be used for paper
-
-import matplotlib.gridspec as gridspec
-import matplotlib.pyplot as plt
-from matplotlib.patches import Patch
-
-from cluster_weather_years.evaluation_plot_helpers import (
-    _add_dot_row,
-    _method_legend_handles,
-    _plot_panel_b_qqmae,
-    _plot_panel_c_corrdev,
-    fontsize,
-    fontsize_title,
-)
-
-
-def _plot_panel_a_swd_thin(ax, mode, metrics, cfg, bar_h=0.125):
-    """Same as _plot_panel_a_swd but with configurable (thinner) bar height."""
-    n_methods = len(cfg["labels"])
-    y = np.arange(n_methods) * 0.66
-
-    if mode == "seasonal":
-        # longest bar, so the dot spacing is the same for every method
-        x_max = max(metrics["sswd"][k] for k in cfg["keys"])
-        for i, (key, label) in enumerate(zip(cfg["keys"], cfg["labels"])):
-            # first season gets drawn-on dots, second the (phase-insensitive) diagonals
-            for j, (season, hatch) in enumerate(
-                zip(metrics["season_list"], [None, "/"])
-            ):
-                val = metrics["swd_seasonal"][season][key]
-                ax.barh(
-                    y[i] + (j - 0.5) * bar_h,
-                    val,
-                    bar_h,
-                    color=cfg["colors"][label],
-                    hatch=hatch,
-                    edgecolor="white",
-                )
-                if hatch is None:
-                    _add_dot_row(ax, y[i] + (j - 0.5) * bar_h, val, x_max, size=4)
-                ax.text(
-                    val + 0.002,
-                    y[i] + (j - 0.5) * bar_h,
-                    f"{val:.2f}",
-                    va="center",
-                    fontsize=fontsize - 3,
-                    color="0.3",
-                )
-            val_sswd = metrics["sswd"][key]
-            ax.barh(
-                y[i] + bar_h + bar_h / 2,
-                val_sswd,
-                bar_h,
-                color=cfg["colors"][label],
-                edgecolor="white",
-            )
-            ax.text(
-                val_sswd + 0.002,
-                y[i] + bar_h + bar_h / 2,
-                f"{val_sswd:.2f}",
-                va="center",
-                fontsize=fontsize - 3,
-                fontweight="bold",
-                color="0.3",
-            )
-
-        if n_methods <= 4:
-            ax.set_xlim(0, max(metrics["sswd"].values()) * 1.3)
-
-        ax.legend(
-            handles=[
-                Patch(
-                    facecolor="0.6",
-                    edgecolor="white",
-                    hatch="..",
-                    label=metrics["season_list"][0],
-                ),
-                Patch(
-                    facecolor="0.6",
-                    edgecolor="white",
-                    hatch="///",
-                    label=metrics["season_list"][1],
-                ),
-                Patch(facecolor="0.6", edgecolor="white", label="SSWD (max)"),
-            ],
-            loc="upper right",
-            fontsize=fontsize,
-        )
-        ax.set_title(
-            "(a) Sliced Wasserstein distance, per season",
-            fontweight="bold",
-            fontsize=fontsize_title,
-        )
-    else:
-        for i, (key, label) in enumerate(zip(cfg["keys"], cfg["labels"])):
-            val = metrics["swd_annual"][key]
-            ax.barh(y[i], val, bar_h, color=cfg["colors"][label], edgecolor="white")
-            ax.text(
-                val + 0.002,
-                y[i],
-                f"{val:.2f}",
-                va="center",
-                fontsize=fontsize - 3,
-                fontweight="bold",
-                color="0.3",
-            )
-        ax.set_title(
-            "(a) Sliced Wasserstein distance — annual",
-            fontweight="bold",
-            fontsize=fontsize_title,
-        )
-
-    ax.set_yticks(y)
-    ax.set_yticklabels(cfg["labels"], fontsize=fontsize)
-    ax.invert_yaxis()
-    ax.set_xlabel("SWD (GWh/day)", fontsize=fontsize)
-
-
-def make_summary_figure_presentation(
-    mode: str,
-    metrics: dict,
-    cfg: dict,
-    plot_vars: list,
-    save_dir: str,
-    multi_country: bool = False,
-    n_countries: int = 1,
-    methods_to_keep=("Best SA Subset", "ERAA25 Subset"),
-):
-    """Presentation variant of make_summary_figure.
-
-    - Only plots the methods in ``methods_to_keep`` (order preserved from cfg).
-    - Saves the PDF with a transparent background.
-    """
-    kept = [i for i, k in enumerate(cfg["keys"]) if k in methods_to_keep]
-    cfg_filt = {
-        "keys": [cfg["keys"][i] for i in kept],
-        "labels": [cfg["labels"][i] for i in kept],
-        "colors": {cfg["labels"][i]: cfg["colors"][cfg["labels"][i]] for i in kept},
-        "markers": {cfg["labels"][i]: cfg["markers"][cfg["labels"][i]] for i in kept},
-    }
-
-    fig = plt.figure(figsize=(13, 9.5), dpi=300)
-    gs = gridspec.GridSpec(2, 2, height_ratios=[0.78, 1], hspace=0.38, wspace=0.3)
-    ax_a = fig.add_subplot(gs[0, :])
-    ax_b = fig.add_subplot(gs[1, 0])
-    ax_c = fig.add_subplot(gs[1, 1])
-
-    _plot_panel_a_swd_thin(ax_a, mode, metrics, cfg_filt)
-    _plot_panel_b_qqmae(
-        ax_b, mode, metrics, cfg_filt, plot_vars, multi_country, n_countries
-    )
-    _plot_panel_c_corrdev(ax_c, mode, metrics, cfg_filt)
-
-    handles = _method_legend_handles(cfg_filt)
-    fig.legend(
-        handles,
-        cfg_filt["labels"],
-        loc="lower center",
-        ncol=len(cfg_filt["labels"]),
-        fontsize=fontsize,
-        bbox_to_anchor=(0.5, -0.075),
-        frameon=True,
-    )
-    fig.tight_layout()
-    plt.savefig(
-        os.path.join(save_dir, f"summary_figure_{mode}_presentation.png"),
-        bbox_inches="tight",
-        dpi=300,
-        transparent=True,
-    )
-    return fig
-
-
-fig = make_summary_figure_presentation(
-    mode="seasonal",  # or "annual"
-    metrics=metrics,
-    cfg=cfg,
-    plot_vars=PLOT_VARS,
-    save_dir=SAVE_DIR,
-    multi_country=True,
-    n_countries=len(MATCH_COUNTRIES),
-)
-plt.show()
-
 # %% 10. Equivalent-to-N-years (optional)
 
 if CALC_EQUIVALENT_TO_N_YEARS:
     num_years_range, all_scores = plot_equivalent_to_n_years(
         df_results, df_ref, vars_non_nan, SELECTED_YEARS, SAVE_DIR
     )
-
-if COMPARE_30_VS_36:
-    all_scores = compare_random_30_vs_36(df_ref, vars_non_nan)
-
 # %%
