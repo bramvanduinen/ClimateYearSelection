@@ -8,10 +8,7 @@ from matplotlib import cm
 YEARS = range(
     2016, 2047
 )  # updated because hydro data only starts in July 2015, so incomplete hydro year.
-# HYDROLOGICAL_YEARS = range(2015, 2044)
 HYDROLOGICAL_YEARS = range(2016, 2046)
-
-# YEAR_COL = "Hydrological_year"
 
 # quantiles for QQ-comparison
 dense_low = np.linspace(0.005, 0.05, 9, endpoint=False)

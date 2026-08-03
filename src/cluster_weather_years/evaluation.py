@@ -236,25 +236,6 @@ def sswd_seed_uncertainty(
 ) -> tuple:
     """Uncertainty of the best and median SSWD score, per selection_source.
 
-    A single SSWD value carries Monte-Carlo noise from the random projections. Here
-    the best- and median-ranked selection of every `selection_source` is re-scored
-    with `n_seeds` different seeds, so the spread of those repetitions quantifies
-    that noise. The selections themselves are fixed (picked on the stored
-    single-seed scores), so the spread is scoring noise only, not selection noise.
-
-    Two caveats when reporting the std as an error bar:
-
-    1. It is a *marginal* std. All subsets in one repetition share a seed, hence the
-       same projection directions, so a harsh draw lifts every method at once
-       (measured correlation across sources: 0.77-0.94). The noise therefore largely
-       cancels in a method-to-method comparison, and the marginal std overstates the
-       uncertainty on a *difference* by ~2-3x. Use the per-seed arrays in `raw` for a
-       paired comparison if a difference has to be defended.
-    2. It shrinks as ~1/sqrt(n_projections) — it measures how precisely SSWD was
-       computed, not a property of the data. Do not read it as a statistical
-       significance statement about the methods; the spread across the experiments in
-       `df_results` (see the luck/misfortune factors) is the relevant one for that.
-
     Returns
     -------
     df_summary : DataFrame
@@ -469,7 +450,7 @@ def plot_lollipop_by_country(
 ### Physical Evaluation ###
 # Automatic evaluation in 02_run_selections.py.
 # Only used as diagnostic, not for final paper figures.
-# TODO: Some overlap here with functions from above used in  03_evaluation_plots.py, consider merging or at least reusing code between these two files.
+# TODO: Some overlap here with functions from above used in  03_evaluation_plots.py, Have to consider merging or at least reusing code between these two files.
 
 
 def compute_monthly_mean(df, variables):

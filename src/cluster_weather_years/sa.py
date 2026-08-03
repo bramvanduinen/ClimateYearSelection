@@ -103,7 +103,6 @@ def simulated_annealing_selection(
             else:
                 k = int(rng.integers(2, 4))  # 2 or 3
 
-        # TODO: Tweak with this. Does this swap enough/too much?
         else:  # built on n_select = 30
             if u < 0.5:
                 k = int(rng.integers(1, 4))  # 1, 2, or 3
@@ -203,7 +202,6 @@ def plot_sa_log(log_df, metric, t0, cr, mi, seed, output_dir_sa):
         2, 1, figsize=(8, 6), sharex=True, gridspec_kw={"height_ratios": [2, 1]}
     )
 
-    # ax2 = ax1.twinx()
     ax4 = ax3.twinx()
 
     metric_label = metric.__name__
@@ -214,11 +212,6 @@ def plot_sa_log(log_df, metric, t0, cr, mi, seed, output_dir_sa):
     ax1.plot(log_df["iter"], log_df["score_best"], label="Best", color="tab:green")
     ax1.set_ylabel(f"{metric_label} (lower is better)")
     ax1.legend(loc="upper right")
-    # ax1.tick_params(axis="y", labelcolor="tab:blue")
-
-    # ax2.plot(log_df["iter"], log_df["score_ref"], label=label_ref, color="tab:orange")
-    # ax2.set_ylabel(f"{label_ref} (lower is better)", color="tab:orange")
-    # ax2.tick_params(axis="y", labelcolor="tab:orange")
 
     ax1.set_title(f"SA evolution: t0={t0}, cr={cr}, mi={mi}, seed={seed}")
 

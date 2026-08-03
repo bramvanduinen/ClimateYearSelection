@@ -36,7 +36,7 @@ request_wind = {
 # }
 request_taw = {
     "variable": ["population_weighted_temperature"],
-    "spatial_resolution": ["szon"]
+    "spatial_resolution": ["szon"],
 }
 
 request_solar = {
@@ -61,7 +61,7 @@ output_dir_wind.mkdir(exist_ok=True)
 output_dir_solar = Path(f"{BASE_INPUT}/pecd_data/energy/solar")
 output_dir_solar.mkdir(exist_ok=True)
 # output_dir_temp = Path(f"{BASE_INPUT}/pecd_data/energy/temp")
-output_dir_temp.mkdir(exist_ok=True)
+# output_dir_temp.mkdir(exist_ok=True)
 output_dir_taw = Path(f"{BASE_INPUT}/pecd_data/energy/taw")
 output_dir_taw.mkdir(exists_ok=True)
 output_dir_hydro = Path(f"{BASE_INPUT}/pecd_data/energy/hydro_weekly")

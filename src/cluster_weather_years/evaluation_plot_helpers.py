@@ -57,10 +57,7 @@ _SOURCE_KEY_MAP = [
 _KEY_TO_LABEL = {key: label for key, label, _ in METHOD_CONFIG}
 _KEY_TO_COLOR = {key: color for key, _, color in METHOD_CONFIG}
 
-# Marker per method for the panel (b) scatter. Shape encodes the method and fill
-# encodes the season (filled = first season, open = second), so the panel stays
-# readable in greyscale and for colour-vision-deficient readers. All five shapes
-# have a usable open version, which "x" and "+" do not.
+# Marker per method for the panel (b) scatter.
 METHOD_MARKERS = {
     "Best SA Subset": "o",  # circle
     "Best K-Medoids Subset": "s",  # square
@@ -70,12 +67,9 @@ METHOD_MARKERS = {
 }
 # Short-label → marker, so the Pareto scatter can share the same shape key.
 _LABEL_TO_MARKER = {label: METHOD_MARKERS[key] for key, label, _ in METHOD_CONFIG}
-# Per-shape area correction so the markers look equally heavy (a diamond of the
-# same area reads as larger, a triangle as smaller).
+# Per-shape area correction so the markers look equally heavy
 _MARKER_SIZES = {"o": 46, "s": 42, "D": 34, "^": 54, "v": 54}
-# Horizontal spacing between methods within one x-category in panel (b). The two
-# seasons of a method share an x position (fill and opacity tell them apart), so
-# this only has to separate the methods.
+# Horizontal spacing between methods within one x-category in panel (b)
 _METHOD_DODGE = 0.18
 
 _VAR_SUFFIX_MAP = {
@@ -230,8 +224,6 @@ def plot_results_with_pareto(
         zorder=5,
     )
 
-    # Base marker area for the Pareto scatter; per-shape correction is scaled from
-    # _MARKER_SIZES (calibrated around "o") so every method reads equally heavy.
     _pareto_base = 14
     for label, grp in df_results.groupby("_label"):
         marker = _LABEL_TO_MARKER.get(label, "o")
@@ -649,13 +641,7 @@ def build_summary_config(include_eraa25: bool = True) -> dict:
 
 
 def _scatter_method_season(ax, x, y, color, marker, filled: bool = True, alpha=None):
-    """Scatter one method-season series: shape = method, fill = season.
-
-    The filled (first-season) marker is semi-transparent while the open one keeps a
-    fully opaque edge. Where the two seasons coincide the open marker is drawn last,
-    so the pair reads as a pale disc behind a crisp ring rather than as a single
-    filled point.
-    """
+    """Scatter one method-season series: shape = method, fill = season."""
     ax.scatter(
         x,
         y,
@@ -725,13 +711,7 @@ fontsize_title = 20
 
 
 def _add_dot_row(ax, y_center, x_end, x_max, color="white", n_dots=24, size=5):
-    """Row of evenly spaced dots, vertically centred in a horizontal bar.
-
-    Replaces matplotlib's "." hatch: hatches are rendered in a pattern space shared
-    by the whole axes rather than per patch, so every bar samples a different phase
-    of the dot grid and the dots end up at an inconsistent height, never centred.
-    Spacing is derived from `x_max` (the longest bar) so it is identical everywhere.
-    """
+    """Row of evenly spaced dots, vertically centred in a horizontal bar."""
     spacing = x_max / n_dots
     xs = np.arange(spacing / 2, x_end, spacing)
     if len(xs) == 0 and x_end > 0:
@@ -862,15 +842,10 @@ def _plot_panel_b_qqmae(
     multi_country: bool = False,
     n_countries: int = 1,
 ):
-    """(b) Scatter of QQ-MAE per variable (or aggregated variable type) per method.
-
-    Marker shape encodes the method and fill encodes the season (filled = first
-    season, open = second), so the panel is readable without relying on colour.
-    """
+    """(b) Scatter of QQ-MAE per variable (or aggregated variable type) per method."""
     n_methods = len(cfg["labels"])
     markers = cfg.get("markers", {})
-    # filled for the first season, open for the second — both at the same x, since
-    # the fill and the opacity difference keep a coincident pair readable
+    # filled for the first season, open for the second
     filled_season = dict(zip(metrics["season_list"], [True, False]))
 
     if multi_country:
@@ -1136,7 +1111,7 @@ def plot_equivalent_to_n_years(
     selected_years: int,
     save_dir: str,
 ):
-    """Estimate how many random draws are needed to match the best selection score.
+    """Estimate how many random draw years are needed to match the best selection score.
 
     Parameters
     ----------
@@ -1216,7 +1191,7 @@ def compare_random_30_vs_36(
     n_projections: int = 50,
     sizes: tuple = (30, 36),
 ):
-    """One-off: quantify the SSWD difference between random subsets of 30 vs 36 years.
+    """One-off usage: quantify the SSWD difference between random subsets of 30 vs 36 years.
 
     Same machinery as plot_equivalent_to_n_years, restricted to two subset sizes.
     """

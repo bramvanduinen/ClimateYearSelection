@@ -38,48 +38,6 @@ def reference_statistics(df_daily, columns):
     return ref, ref_mean, ref_quantiles
 
 
-# NOTE: OPTIONAL, CURRENTLY NOT USED AND NOT EXTENSIVELY TESTED
-def calibrate_percentile_threshold(
-    d_means,
-    e_scores,
-    columns,
-    target_rate,
-    max_iter=30,
-    tol=0.20,
-):
-    """
-    Find a percentile p such that the joint pass-rate (all vars pass mean+energy)
-    is ~ target_rate. Returns (p, thresholds_mean, thresholds_energy, est_rate).
-
-    tol is relative tolerance on target_rate.
-    """
-    lo, hi = 0.0, 100.0
-    best = None
-
-    for _ in range(max_iter):
-        p = 0.5 * (lo + hi)
-
-        th_mean = {v: np.percentile(d_means[v], p) for v in columns}
-        th_energy = {v: np.percentile(e_scores[v], p) for v in columns}
-
-        passes = np.ones_like(d_means[columns[0]], dtype=bool)
-        for v in columns:
-            passes &= (d_means[v] <= th_mean[v]) & (e_scores[v] <= th_energy[v])
-
-        est_rate = float(passes.mean())
-        best = (p, th_mean, th_energy, est_rate)
-
-        if est_rate > target_rate:
-            hi = p
-        else:
-            lo = p
-
-        if target_rate > 0 and abs(est_rate - target_rate) / target_rate <= tol:
-            break
-
-    return best
-
-
 def score_tuning(
     df_ref,
     model_years,
@@ -421,17 +379,6 @@ def run_batch(batch_idx, batch_size, iterations, seed, seasonal=False):
       n_drawn  — draws attempted in this batch
       n_passed — draws that survived the filter and reached SSWD evaluation
       median   — median score over those n_passed draws, NaN when nothing passed
-
-    Both are taken over the full passing population, before the top-10% truncation below.
-    Note that population is the passing draws only — draws rejected by the filter are
-    never scored — so this median is not directly comparable to the random search /
-    k-medoids medians, which cover every draw.
-
-    Two-step scoring: all passing draws are first scored cheaply with
-    n_projections_init, then the top 10% are re-scored at full resolution
-    (n_projections_full). Only those full-resolution records are returned.
-    If n_projections_full is None the re-scoring is skipped and the same top 10% is
-    returned carrying its n_projections_init scores.
     """
     score_fn = wasserstein_seasonal_score if seasonal else wasserstein_score
     score_col = "wasserstein_seasonal" if seasonal else "wasserstein"
@@ -487,16 +434,11 @@ def run_batch(batch_idx, batch_size, iterations, seed, seasonal=False):
 
     # --- Second pass: full-resolution re-scoring for top 10% of passing draws ---
     # Only the Wasserstein scores depend on n_projections, so we re-compute just those.
-    # Draws that survived the filter and therefore reached SSWD evaluation. Captured here
-    # because the top-10% truncation below shrinks pass_records.
     n_passed = len(pass_records)
 
     median_score = float("nan")
     if pass_records:
         init_scores = [r[score_col] for r in pass_records]
-        # Median over *every* passing draw, taken before the top-10% truncation below so it
-        # describes the whole scored population rather than just its best tail. Uses the
-        # n_projections_init scores throughout, matching random search and k-medoids.
         median_score = float(np.median(init_scores))
         k = max(1, int(len(pass_records) * 0.1))
         top_indices = np.argsort(init_scores)[:k]

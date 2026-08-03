@@ -1,5 +1,8 @@
 # Climate Year Selection
 
+
+> **Note:** This repository will be further cleaned up in the near future to ensure user friendliness.
+
 ## Description
 
 Method to select a small subset of representative climate years from a large multi-model climate simulation ensemble, for use in energy system impact studies. It matches distributional properties of key energy-impact variables (wind, solar, hydro, demand and residual load) across one or more countries using several selection algorithms: Simulated Annealing (SA), K-Medoids, Filtered Random Search (FRS), and Random Search (RS).
