@@ -71,21 +71,6 @@ TUNING_ITERATIONS = int(1e3)  # iterations used to calibrate thresholds
 FRS_ITER_MULTIPLIER = 10
 
 # =============================================================================
-# EXTREMES COST FUNCTION SETTINGS (run/02_run_selections_extremes.py only)
-# =============================================================================
-# Alternative optimisation target focused on extremes in residual load.
-# Series = {c}_Residual_load for each c in MATCH_COUNTRIES, plus an optional
-# European aggregate (sum over those countries). Ignored by the standard pipeline.
-EXTREMES_Q_TAIL_MIN = 0.90  # lower bound of the upper-tail quantile grid
-EXTREMES_N_Q = 101  # number of points in the quantile grids
-EXTREMES_EVENT_THRESHOLD_QUANTILE = 0.95  # quantile defining the event threshold u_c
-EXTREMES_BETA = 1.0  # weight of the event component vs the tail component
-EXTREMES_GAMMA = 1.0  # weight of the event-frequency penalty within the event term
-EXTREMES_INCLUDE_EUROPEAN_AGGREGATE = True  # add aggregate series (if >1 country)
-EXTREMES_M_NORM = 1000  # random draws used for the normalisation constants
-EXTREMES_NORM_SEED = 0  # seed for the normalisation draws
-
-# =============================================================================
 # DATA SETTINGS (usually don't need to change these)
 # =============================================================================
 
