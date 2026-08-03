@@ -110,7 +110,7 @@ downstream steps. Here, enter any changes in installed capacity or demand-temper
 ### 02. Run selection algorithms
 `run/02_run_selections.py`
 
-Runs all configured algorithms and produces automatic evaluation plots. Results are written to `BASE_OUTPUT/<RUNNAME>_<timestamp>/`, with one subdirectory per method (`simulated_annealing/`, `random_search/`, `k_medoids/`, `filtered_random_search/`) plus `evaluation/` (and `evaluation/by_country/`). A copy of `RUN_SETTINGS.py` is saved alongside the results as `RUN_SETTINGS_of_run.py` for record keeping.
+Runs all four selection algorithms and produces automatic evaluation plots. Results are written to `BASE_OUTPUT/<RUNNAME>_<timestamp>/`, with one subdirectory per method (`simulated_annealing/`, `random_search/`, `k_medoids/`, `filtered_random_search/`) plus `evaluation/` (and `evaluation/by_country/`). A copy of `RUN_SETTINGS.py` is saved alongside the results as `RUN_SETTINGS_of_run.py` for record keeping.
 
 The methods run in this order, with Random Search and K-Medoids matched to SA's compute budget:
 

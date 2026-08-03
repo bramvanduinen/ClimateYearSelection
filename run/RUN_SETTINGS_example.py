@@ -42,8 +42,6 @@ MATCH_COUNTRIES = ["NL"]
 # =============================================================================
 # SIMULATED ANNEALING (SA) SETTINGS
 # =============================================================================
-RUN_SA = True  # set False to skip SA and load results from RUNNAME_SA_FALLBACK instead
-RUNNAME_SA_FALLBACK = "FALLBACK_RUNNAME"
 
 # Total number of SA/Random Search/FRS/K-medoids experiments (each gets a unique seed).
 # Cooling rates are distributed as evenly as possible across experiments:
@@ -61,10 +59,9 @@ PARAM_GRID = {
 # =============================================================================
 # FILTERED RANDOM SEARCH (FRS) SETTINGS
 # =============================================================================
-RUN_FRS = True  # set False to skip FRS
 
 P_THRES = 25  # percentile threshold for univariate pre-filters
-# (guideline: ~25 for 1 country, ~50 for a few, ~75 for many, with 30 years)
+# (guideline: ~25 for 1 country, ~50 for a few, ~85 for many)
 TUNING_ITERATIONS = int(1e3)  # iterations used to calibrate thresholds
 # FRS runs FRS_ITER_MULTIPLIER × (sum of SA n_iter) total draws.
 # E.g. with NUM_EXPERIMENTS=45 and sa_iter=5000 → 45*5000*10 = 2,250,000 draws.

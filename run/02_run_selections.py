@@ -14,7 +14,6 @@ import pandas as pd
 
 # pylint: disable=import-error
 from RUN_SETTINGS import (
-    # BATCH_SIZE,
     DF_PROD_DEMAND_FNAME,
     FRS_ITER_MULTIPLIER,
     HYDRO,
@@ -26,8 +25,6 @@ from RUN_SETTINGS import (
     P_THRES,
     PARAM_GRID,
     PERFORM_TWO_STEP,
-    RUN_FRS,
-    RUN_SA,
     RUNNAME,
     SEASONAL,
     SEED_OFFSET,
@@ -158,13 +155,7 @@ def load_data():
 
     df_daily = pd.read_parquet(DF_PROD_DEMAND_FNAME)
     df_daily["Date"] = pd.to_datetime(df_daily["Date"])
-    # if HYDRO:
-    #     # HACK: overwrite default Hydrological years
-    #     # Hydro data starts only in 2015-07-20
-    #     HYDROLOGICAL_YEARS = range(2016, 2046)
-    # else:
-    #     # HACK: Should be taken from constants, but not found?
-    #     HYDROLOGICAL_YEARS = range(2016, 2046)
+
     df_daily = df_daily.query("Hydrological_year in @HYDROLOGICAL_YEARS")
     df_daily = df_daily.set_index(["model", "Date"])
 
@@ -400,25 +391,6 @@ def run_simulated_annealing(df_ref, vars_non_nan, output_dir_sa):
     df_sa_results.to_csv(os.path.join(output_dir_sa, "sa_year_selections.csv"))
     best = min(sa_result_dicts, key=lambda d: d["best_score"])
     logger.info(f"SA run done, best score: {best['best_score']:.2f}")
-    # else:
-    #     logger.info("##### 2. Skipping Simulated Annealing as per settings... #####")
-
-    #     n_workers = os.cpu_count()
-    #     df_sa_results = _parse_model_years(
-    #         pd.read_csv(
-    #             os.path.join(
-    #                 BASE_OUTPUT,
-    #                 f"{RUNNAME_SA_FALLBACK}/simulated_annealing/sa_year_selections.csv",
-    #             ),
-    #             index_col=0,
-    #         )
-    #     )
-    #     logger.info(
-    #         f"Simulated Annealing results copied from fallback run: {RUNNAME_SA_FALLBACK}"
-    #     )
-    #     df_sa_results.to_csv(
-    #         os.path.join(output_dir_sa, "sa_year_selections.csv"), index=True
-    #     )
     logger.info(f"Simulated Annealing results saved to {output_dir_sa}.")
 
     return df_sa_results, n_workers
@@ -435,157 +407,147 @@ def run_filtered_random_search(
     """5. Filtered Random Search (FRS)."""
     # NOTE: scales very poorly with increasing vars_to_match
     logger = logging.getLogger(__name__)
-    if RUN_FRS:
-        logger.info("##### 5. Performing Filtered Random Search (FRS)... #####")
-        logger.info(
-            f"Running FRS with {'seasonal scoring' if SEASONAL else 'regular scoring'}..."
+    logger.info("##### 5. Performing Filtered Random Search (FRS)... #####")
+    logger.info(
+        f"Running FRS with {'seasonal scoring' if SEASONAL else 'regular scoring'}..."
+    )
+
+    if SEASONAL:
+        _, _, thresholds_mean, thresholds_energy = score_tuning_seasonal(
+            df_ref,
+            model_years,
+            TUNING_ITERATIONS,
+            NUM_TO_SELECT,
+            vars_non_nan,
+            rng,
+            YEAR_COL,
+            percentile_threshold=P_THRES,
         )
-
-        if SEASONAL:
-            _, _, thresholds_mean, thresholds_energy = score_tuning_seasonal(
-                df_ref,
-                model_years,
-                TUNING_ITERATIONS,
-                NUM_TO_SELECT,
-                vars_non_nan,
-                rng,
-                YEAR_COL,
-                percentile_threshold=P_THRES,
-            )
-        else:
-            _, _, thresholds_mean, thresholds_energy = score_tuning(
-                df_ref,
-                model_years,
-                TUNING_ITERATIONS,
-                NUM_TO_SELECT,
-                vars_non_nan,
-                rng,
-                YEAR_COL,
-                percentile_threshold=P_THRES,
-            )
-
-        df_thresholds_energy = pd.DataFrame(
-            thresholds_energy.items(), columns=["Variable", "Threshold Energy"]
-        )
-        df_thresholds_mean = pd.DataFrame(
-            thresholds_mean.items(), columns=["Variable", "Threshold Mean"]
-        )
-        df_thresholds_energy.merge(df_thresholds_mean, on="Variable").to_csv(
-            os.path.join(output_dir_frs, "frs_thresholds.csv"), index=True
-        )
-
-        # Split frs_iterations into NUM_EXPERIMENTS batches (one unique seed each).
-        # Only the best result (lowest wasserstein score) per batch is kept.
-        n_batches = NUM_EXPERIMENTS
-        batch_size_frs = math.ceil(frs_iterations / n_batches)
-        frs_total = n_batches * batch_size_frs  # may be slightly > frs_iterations
-        # Seeds: experiments 0..NUM_EXPERIMENTS-1
-        frs_seeds = list(range(n_batches))
-
-        # Each record in pass_rec already contains "model_years" (set inside
-        # score_df / score_df_seasonal), so it lands in df_frs_results automatically.
-        frs_results_pass = []  # one best-scoring record per batch
-        frs_results_fail = []
-
-        max_workers = os.cpu_count()
-        score_col = "wasserstein_seasonal" if SEASONAL else "wasserstein"
-
-        with ProcessPoolExecutor(
-            max_workers=max_workers,
-            initializer=init_worker,
-            initargs=(
-                df_ref,
-                model_years,
-                thresholds_mean,
-                thresholds_energy,
-                NUM_TO_SELECT,
-                YEAR_COL,
-                vars_non_nan,
-                True,  # skip_check
-                N_PROJECTIONS_INIT,
-                N_PROJECTIONS_REFINE,
-            ),
-        ) as ex:
-            hbf_batch_iter = ex.map(
-                run_batch,
-                range(n_batches),
-                [batch_size_frs] * n_batches,
-                [frs_total] * n_batches,
-                frs_seeds,
-                [SEASONAL] * n_batches,
-            )
-
-            n_passed_total = 0
-            for batch_idx, (
-                batch_pass_records,
-                batch_fail_records,
-                _pass_years,
-                batch_stats,
-            ) in enumerate(tqdm(hbf_batch_iter, total=n_batches)):
-                frs_results_fail.extend(batch_fail_records)
-                n_passed = batch_stats["n_passed"]
-                n_drawn = batch_stats["n_drawn"]
-                n_passed_total += n_passed
-                if batch_pass_records:
-                    median = batch_stats["median"]
-                    best = min(batch_pass_records, key=lambda r: r[score_col])
-                    best[f"{score_col}_median"] = median
-                    best["n_passed"] = n_passed
-                    best["n_drawn"] = n_drawn
-                    # ex.map preserves input order, so this enumerate index is the batch
-                    # index handed to run_batch (and its seed).
-                    best["batch"] = batch_idx
-
-                    frs_results_pass.append(best)
-                    logger.info(
-                        f"Batch {batch_idx} done — {n_passed}/{n_drawn} draws passed "
-                        f"({n_passed / n_drawn:.3%}), best {score_col} = {best[score_col]:.4f}, "
-                        f"median = {median:.4f}"
-                    )
-                else:
-                    logger.info(
-                        f"Batch {batch_idx} done — no passing draws (0/{n_drawn})"
-                    )
-
-        df_frs_results = pd.DataFrame(frs_results_pass)
-        if not df_frs_results.empty:
-            df_frs_results = df_frs_results.sort_values(score_col).reset_index(
-                drop=True
-            )
-        df_frs_results["selection_source"] = "FRS"
-        df_frs_fail = pd.DataFrame(frs_results_fail)[["fail_check", "fail_var"]]
-
-        # frs_total, not frs_iterations: batch_size is rounded up, so frs_total is what
-        # was actually drawn and keeps skip rate and pass rate summing to 1.
-        skip_rate = len(df_frs_fail) / frs_total
-        logger.info(
-            f"Skip rate: {skip_rate:.3f} — {n_passed_total} of {frs_total} draws passed "
-            f"the filter and reached SSWD evaluation ({n_passed_total / frs_total:.4%})"
-        )
-        if n_passed_total + len(df_frs_fail) != frs_total:
-            logger.warning(
-                f"Draw accounting mismatch: {n_passed_total} passed + "
-                f"{len(df_frs_fail)} failed != {frs_total} drawn"
-            )
-
-        if not df_frs_results.empty:
-            overall_best = df_frs_results.iloc[0]
-            logger.info(
-                f"FRS done — best {score_col} = {overall_best[score_col]:.4f} "
-                f"(batch {int(overall_best['batch'])})."
-            )
-
-        logger.info(
-            f"Failure distribution:\n{df_frs_fail.groupby(['fail_check', 'fail_var']).size().sort_values(ascending=False).head(20)}"
-        )
-
-        df_frs_results.to_csv(
-            os.path.join(output_dir_frs, "frs_df_pass.csv"), index=True
-        )
-        return df_frs_results
     else:
-        logger.info("##### 5. Skipping Filtered Random Search as per settings... #####")
-        return None
+        _, _, thresholds_mean, thresholds_energy = score_tuning(
+            df_ref,
+            model_years,
+            TUNING_ITERATIONS,
+            NUM_TO_SELECT,
+            vars_non_nan,
+            rng,
+            YEAR_COL,
+            percentile_threshold=P_THRES,
+        )
+
+    df_thresholds_energy = pd.DataFrame(
+        thresholds_energy.items(), columns=["Variable", "Threshold Energy"]
+    )
+    df_thresholds_mean = pd.DataFrame(
+        thresholds_mean.items(), columns=["Variable", "Threshold Mean"]
+    )
+    df_thresholds_energy.merge(df_thresholds_mean, on="Variable").to_csv(
+        os.path.join(output_dir_frs, "frs_thresholds.csv"), index=True
+    )
+
+    # Split frs_iterations into NUM_EXPERIMENTS batches (one unique seed each).
+    # Only the best result (lowest wasserstein score) per batch is kept.
+    n_batches = NUM_EXPERIMENTS
+    batch_size_frs = math.ceil(frs_iterations / n_batches)
+    frs_total = n_batches * batch_size_frs  # may be slightly > frs_iterations
+    # Seeds: experiments 0..NUM_EXPERIMENTS-1
+    frs_seeds = list(range(n_batches))
+
+    # Each record in pass_rec already contains "model_years" (set inside
+    # score_df / score_df_seasonal), so it lands in df_frs_results automatically.
+    frs_results_pass = []  # one best-scoring record per batch
+    frs_results_fail = []
+
+    max_workers = os.cpu_count()
+    score_col = "wasserstein_seasonal" if SEASONAL else "wasserstein"
+
+    with ProcessPoolExecutor(
+        max_workers=max_workers,
+        initializer=init_worker,
+        initargs=(
+            df_ref,
+            model_years,
+            thresholds_mean,
+            thresholds_energy,
+            NUM_TO_SELECT,
+            YEAR_COL,
+            vars_non_nan,
+            True,  # skip_check
+            N_PROJECTIONS_INIT,
+            N_PROJECTIONS_REFINE,
+        ),
+    ) as ex:
+        hbf_batch_iter = ex.map(
+            run_batch,
+            range(n_batches),
+            [batch_size_frs] * n_batches,
+            [frs_total] * n_batches,
+            frs_seeds,
+            [SEASONAL] * n_batches,
+        )
+
+        n_passed_total = 0
+        for batch_idx, (
+            batch_pass_records,
+            batch_fail_records,
+            _pass_years,
+            batch_stats,
+        ) in enumerate(tqdm(hbf_batch_iter, total=n_batches)):
+            frs_results_fail.extend(batch_fail_records)
+            n_passed = batch_stats["n_passed"]
+            n_drawn = batch_stats["n_drawn"]
+            n_passed_total += n_passed
+            if batch_pass_records:
+                median = batch_stats["median"]
+                best = min(batch_pass_records, key=lambda r: r[score_col])
+                best[f"{score_col}_median"] = median
+                best["n_passed"] = n_passed
+                best["n_drawn"] = n_drawn
+                # ex.map preserves input order, so this enumerate index is the batch
+                # index handed to run_batch (and its seed).
+                best["batch"] = batch_idx
+
+                frs_results_pass.append(best)
+                logger.info(
+                    f"Batch {batch_idx} done — {n_passed}/{n_drawn} draws passed "
+                    f"({n_passed / n_drawn:.3%}), best {score_col} = {best[score_col]:.4f}, "
+                    f"median = {median:.4f}"
+                )
+            else:
+                logger.info(f"Batch {batch_idx} done — no passing draws (0/{n_drawn})")
+
+    df_frs_results = pd.DataFrame(frs_results_pass)
+    if not df_frs_results.empty:
+        df_frs_results = df_frs_results.sort_values(score_col).reset_index(drop=True)
+    df_frs_results["selection_source"] = "FRS"
+    df_frs_fail = pd.DataFrame(frs_results_fail)[["fail_check", "fail_var"]]
+
+    # frs_total, not frs_iterations: batch_size is rounded up, so frs_total is what
+    # was actually drawn and keeps skip rate and pass rate summing to 1.
+    skip_rate = len(df_frs_fail) / frs_total
+    logger.info(
+        f"Skip rate: {skip_rate:.3f} — {n_passed_total} of {frs_total} draws passed "
+        f"the filter and reached SSWD evaluation ({n_passed_total / frs_total:.4%})"
+    )
+    if n_passed_total + len(df_frs_fail) != frs_total:
+        logger.warning(
+            f"Draw accounting mismatch: {n_passed_total} passed + "
+            f"{len(df_frs_fail)} failed != {frs_total} drawn"
+        )
+
+    if not df_frs_results.empty:
+        overall_best = df_frs_results.iloc[0]
+        logger.info(
+            f"FRS done — best {score_col} = {overall_best[score_col]:.4f} "
+            f"(batch {int(overall_best['batch'])})."
+        )
+
+    logger.info(
+        f"Failure distribution:\n{df_frs_fail.groupby(['fail_check', 'fail_var']).size().sort_values(ascending=False).head(20)}"
+    )
+
+    df_frs_results.to_csv(os.path.join(output_dir_frs, "frs_df_pass.csv"), index=True)
+    return df_frs_results
 
 
 def score_all_selections(
@@ -641,13 +603,10 @@ def score_all_selections(
             score_row.update(scores)
             scored_rows.append(score_row)
 
-    if RUN_FRS:
-        # concat FRS pass selections (pre-calculated)
-        df_all_results = pd.concat(
-            [pd.DataFrame(scored_rows), df_frs_results], ignore_index=True
-        )
-    else:
-        df_all_results = pd.DataFrame(scored_rows)
+    # concat FRS pass selections (pre-calculated)
+    df_all_results = pd.concat(
+        [pd.DataFrame(scored_rows), df_frs_results], ignore_index=True
+    )
 
     # sort by score
     df_all_results = df_all_results.sort_values(
@@ -783,9 +742,6 @@ def run_evaluation(
             worst_score="max",
         )
         .assign(
-            # luck_factor=lambda df: (
-            #     (df["median_score"] - df["best_score"]) / df["best_score"]
-            # ),
             luck_factor=lambda df: (
                 (df["median_score"] - df["best_score"])
                 / df.loc["random_search", "median_score"]
