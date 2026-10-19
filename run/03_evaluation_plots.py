@@ -58,12 +58,10 @@ CALC_EQUIVALENT_TO_N_YEARS = False  # If True, compute how many random draws wou
 COMPARE_30_VS_36 = (
     False  # If True, compare 30yr vs 36yr random draw quality. Only had to be run once.
 )
-OLD_NAMING = True
+OLD_NAMING = False  # True only for old runs where FRS was labelled 'HBF' and random search 'random_draws'
 
 RUNNAME_ = "RUNNAME"  # Enter the runname you want to evaluate here
 
-
-SELECTED_YEARS = 30
 
 # Plot layout
 PLOT_ROWS, PLOT_COLS = 3, 2
@@ -134,6 +132,7 @@ with open(fname_settings) as f:
 DF_PROD_DEMAND_FNAME = _run_settings["DF_PROD_DEMAND_FNAME"]
 VARS_TO_MATCH = _run_settings["VARS_TO_MATCH"]
 MATCH_COUNTRIES = _run_settings["MATCH_COUNTRIES"]
+SELECTED_YEARS = _run_settings["NUM_TO_SELECT"]
 
 df_daily = pd.read_parquet(DF_PROD_DEMAND_FNAME)
 df_daily["Date"] = pd.to_datetime(df_daily["Date"])

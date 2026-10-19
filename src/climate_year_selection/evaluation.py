@@ -394,7 +394,9 @@ def plot_lollipop_by_country(
             df_country[["model_years", metric]], on="model_years"
         )[f"{metric}_y"].to_numpy()
 
-        rnd = df_country.query("selection_source == 'random_draws'")[f"{metric}"].mean()
+        rnd = df_country.query("selection_source == 'random_search'")[
+            f"{metric}"
+        ].mean()
 
         k_med = df_country.query("selection_source == 'k_medoids'")[f"{metric}"].values[
             0
@@ -411,7 +413,7 @@ def plot_lollipop_by_country(
         link_colors = np.where(better, "green", "red")
 
         ax.hlines(i, x_min, x_max, linewidth=1, colors=link_colors, alpha=0.9)
-        ax.scatter(rnd, i, color="red", label="Random Draws" if i == 0 else None)
+        ax.scatter(rnd, i, color="red", label="Random Search" if i == 0 else None)
         ax.scatter(
             k_med,
             i,

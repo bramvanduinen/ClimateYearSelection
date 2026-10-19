@@ -237,7 +237,7 @@ def _draw_random_batch(args):
 def run_random_search(model_years, vars_non_nan, num_draws_total, output_dir_random):
     """3. Random Search.
 
-    Draws are split into NUM_EXPERIMENTS batches (each seeded by its experiment index).
+    Draws are split into NUM_EXPERIMENTS batches (batch i uses seed i + SEED_OFFSET).
     Only the best (lowest wasserstein score) from each batch is kept, yielding
     exactly NUM_EXPERIMENTS results — one per batch.
     """
@@ -251,7 +251,7 @@ def run_random_search(model_years, vars_non_nan, num_draws_total, output_dir_ran
     )
 
     n_workers = min(os.cpu_count() or 1, NUM_EXPERIMENTS)
-    # Each experiment gets its own unique seed (experiment index)
+    # Each experiment gets its own unique seed (experiment index + SEED_OFFSET)
     job_args = [
         (
             seed,
@@ -262,7 +262,7 @@ def run_random_search(model_years, vars_non_nan, num_draws_total, output_dir_ran
             N_PROJECTIONS_INIT,
             N_PROJECTIONS_REFINE,
         )
-        for seed in range(NUM_EXPERIMENTS)
+        for seed in range(SEED_OFFSET, SEED_OFFSET + NUM_EXPERIMENTS)
     ]
 
     random_search_results = []
@@ -450,8 +450,8 @@ def run_filtered_random_search(
     n_batches = NUM_EXPERIMENTS
     batch_size_frs = math.ceil(frs_iterations / n_batches)
     frs_total = n_batches * batch_size_frs  # may be slightly > frs_iterations
-    # Seeds: experiments 0..NUM_EXPERIMENTS-1
-    frs_seeds = list(range(n_batches))
+    # Seeds: SEED_OFFSET .. SEED_OFFSET + NUM_EXPERIMENTS - 1 (as for the other methods)
+    frs_seeds = list(range(SEED_OFFSET, SEED_OFFSET + n_batches))
 
     # Each record in pass_rec already contains "model_years" (set inside
     # score_df / score_df_seasonal), so it lands in df_frs_results automatically.
