@@ -109,8 +109,27 @@ Combines wind, solar, demand and hydro into a single daily
 production-demand dataframe (`df_prod_demand_daily.parquet`) used by all
 downstream steps. Here, enter any changes in installed capacity or demand-temperature assumptions you want to make.
 
-### 02. Run selection algorithms
-`run/02_run_selections.py`
+### 02. Select representative years
+
+There are two options. For a new application, use **02b**. Use **02a** only to replicate the method comparison from the paper.
+
+#### 02b. Simulated Annealing only *(recommended)*
+`run/02b_run_simulated_annealing.py`
+
+Runs only Simulated Annealing, the best-performing method in the paper. It runs `NUM_EXPERIMENTS` independent SA experiments (one seed each), re-scores them and keeps the best. Results are written to `BASE_OUTPUT/<RUNNAME>_<timestamp>/`:
+- `best_selection.csv`: the selected years, one `(model, year)` pair per row.
+- `simulated_annealing/sa_year_selections_scored.csv`: all SA experiments with their scores, best first.
+- `simulated_annealing/plots/`: a convergence plot per experiment.
+
+Uses the general and SA settings from `RUN_SETTINGS.py`; the FRS settings are ignored.
+
+```bash
+cd run
+python 02b_run_simulated_annealing.py
+```
+
+#### 02a. All selection methods *(paper workflow)*
+`run/02a_run_all_selection_methods.py`
 
 Runs all four selection algorithms and produces automatic evaluation plots. Results are written to `BASE_OUTPUT/<RUNNAME>_<timestamp>/`, with one subdirectory per method (`simulated_annealing/`, `random_search/`, `k_medoids/`, `filtered_random_search/`) plus `evaluation/` (and `evaluation/by_country/`). A copy of `RUN_SETTINGS.py` is saved alongside the results as `RUN_SETTINGS_of_run.py` for record keeping.
 
@@ -123,7 +142,7 @@ The methods run in this order, with Random Search and K-Medoids matched to SA's 
 
 ```bash
 cd run
-python 02_run_selections.py
+python 02a_run_all_selection_methods.py
 ```
 
 ### 03. Evaluation plots
@@ -151,7 +170,8 @@ run/                             # pipeline scripts and notebooks
     00a_download_pecd_energy.py
     00b_aggregate_wind_to_nuts0.ipynb
     01_build_dataset.ipynb
-    02_run_selections.py
+    02a_run_all_selection_methods.py
+    02b_run_simulated_annealing.py
     03_evaluation_plots.py
     illustrations/               # standalone scripts for paper figures
     weights/                     # PECD capacity weights for wind aggregation
