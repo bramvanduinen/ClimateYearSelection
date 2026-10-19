@@ -3,7 +3,7 @@ message: "If you use this code, please cite the paper below."
 title: "Climate Year Selection"
 type: software
 license: MIT
-repository-code: "https://github.com/bramvanduinen/weather_year_selection"
+repository-code: "https://github.com/bramvanduinen/ClimateYearSelection"
 authors:
   - family-names: "van Duinen"
     given-names: "Bram"

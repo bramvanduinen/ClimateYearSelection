@@ -19,6 +19,8 @@ This code accompanies the paper:
 
 If you use this code, please cite the paper above (see also `CITATION.cff`).
 
+Code repository: https://github.com/bramvanduinen/ClimateYearSelection. It was formerly named `weather_year_selection`; the link in the paper (https://github.com/bramvanduinen/weather_year_selection) redirects here.
+
 ## Contact
 
 Bram van Duinen — bram.van.duinen@knmi.nl
