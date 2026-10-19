@@ -158,7 +158,6 @@ src/climate_year_selection/       # core library
     cost_functions.py            # (S)SWD scoring functions used by the search
     sa.py                        # simulated annealing
     k_medoids_stochastic.py      # k-medoids, stochastic variant
-    k_medoids_deterministic.py   # k-medoids, deterministic variant (unused)
     filtered_random_search.py    # FRS: univariate pre-filters + random sampling
     evaluation.py                # scoring and seed-uncertainty analysis
     evaluation_plot_helpers.py   # figure generation
