@@ -1,3 +1,28 @@
+"""
+Run all four selection methods from the paper and compare them.
+
+Use this script to replicate the method comparison in the paper. For a new application,
+02b_run_simulated_annealing.py (SA only) is faster and gives the same SA results.
+
+Methods, in this order: Simulated Annealing (SA), Random Search (RS), K-Medoids and
+Filtered Random Search (FRS). RS and K-Medoids get the same compute budget as SA
+(total number of SA iterations); FRS gets FRS_ITER_MULTIPLIER times that budget.
+All selections are then re-scored with the same metrics, scored per country, and a
+set of automatic evaluation plots is made.
+
+Inputs:  RUN_SETTINGS.py and the dataframe built in 01.
+Outputs (in BASE_OUTPUT/<RUNNAME>_<timestamp>/):
+    all_year_selections_scored.csv          all selections of all methods, best first
+    all_year_selections_country_scores.csv  the same, scored per country
+    simulated_annealing/, random_search/, k_medoids/, filtered_random_search/
+                                            raw results per method
+    evaluation/                             automatic evaluation plots
+    run_log.txt, RUN_SETTINGS_of_run.py
+
+Run from the run/ directory:
+    python 02a_run_all_selection_methods.py
+"""
+
 # %%
 #### imports ####
 import logging
@@ -87,7 +112,6 @@ def setup_output_directories():
     """0. Create output directories."""
     rundate = datetime.now().strftime("%Y%m%d_%H%M")
     output_dir_run = os.path.join(BASE_OUTPUT, f"{RUNNAME}_{rundate}")
-    # output_dir_run = os.path.join(BASE_OUTPUT, f"{RUNNAME}")
 
     os.makedirs(output_dir_run, exist_ok=True)
 
@@ -340,9 +364,8 @@ def run_kmedoids(df_ref, vars_non_nan, sa_total_iters, output_dir_kmedoids):
 
 
 def run_simulated_annealing(df_ref, vars_non_nan, output_dir_sa):
-    """2. Simulated Annealing (or load fallback results)."""
+    """2. Simulated Annealing: NUM_EXPERIMENTS independent runs, one seed each."""
     logger = logging.getLogger(__name__)
-    # if RUN_SA:
     logger.info(
         f"##### 2. Performing Simulated Annealing in {'seasonal' if SEASONAL else 'annual'} mode... #####"
     )

@@ -1,5 +1,7 @@
-# Run settings for the weather year selection pipeline.
-# Make all configuration changes here.
+# Run settings for the climate year selection pipeline.
+# Copy this file to RUN_SETTINGS.py (gitignored) and make all changes there.
+# 02b (SA only) uses the PATHS, GENERAL, COUNTRIES, SA and DATA sections;
+# the FRS section is only used by 02a.
 import os
 
 # =============================================================================
@@ -33,7 +35,7 @@ YEAR_COL = "Hydrological_year"  # "Hydrological_year" or "Calendar_year"
 # from which the subset is selected. Hydrological years run from April to March.
 HYDROLOGICAL_YEARS = range(2016, 2046)
 
-# Seed offset applied to all experiment seeds (SA, k-medoids, random draws).
+# Seed offset applied to all experiment seeds (SA, k-medoids, random search, FRS).
 # Default = 0. Each experiment gets a unique seed by adding its batch_seed
 # (0 to NUM_EXPERIMENTS-1) to this offset.
 # Change this to get a different stochastic outcome without re-tuning other settings.
@@ -63,7 +65,8 @@ MATCH_COUNTRIES = ["NL"]
 # SIMULATED ANNEALING (SA) SETTINGS
 # =============================================================================
 
-# Total number of SA/Random Search/FRS/K-medoids experiments (each gets a unique seed).
+# Number of independent experiments per method (each gets a unique seed).
+# The best selection over all experiments is kept.
 # Cooling rates are distributed as evenly as possible across experiments:
 # e.g. 45 experiments with 3 cooling rates → 15 experiments per rate.
 NUM_EXPERIMENTS = 25
@@ -77,7 +80,7 @@ PARAM_GRID = {
     "max_iter": [5000],
 }
 # =============================================================================
-# FILTERED RANDOM SEARCH (FRS) SETTINGS
+# FILTERED RANDOM SEARCH (FRS) SETTINGS (only used by 02a)
 # =============================================================================
 
 P_THRES = 25  # percentile threshold for univariate pre-filters
@@ -107,6 +110,7 @@ DF_PROD_DEMAND_FNAME = os.path.join(
     BASE_INPUT,
     "preprocessed_dataframes/df_prod_demand_daily.parquet",
 )
+# Optional: same dataframe aggregated to regions (made in 01, not used in the paper)
 DF_PROD_DEMAND_FNAME_REGION = os.path.join(
     BASE_INPUT,
     "preprocessed_dataframes/df_prod_demand_daily_regional.parquet",

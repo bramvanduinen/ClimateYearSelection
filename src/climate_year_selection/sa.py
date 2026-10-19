@@ -32,7 +32,23 @@ def simulated_annealing_selection(
     n_projections_full: int = 200,
 ) -> Tuple[list[Tuple[str, int]], float, pd.DataFrame]:
     """
-    Simulated annealing that optimises `scoring_fn`.
+    Simulated annealing that selects `n_select` (model, year) combinations minimising
+    `scoring_fn` (e.g. wasserstein_seasonal_score).
+
+    Starting from a random selection, each iteration swaps one or more selected years
+    for unselected ones. Better neighbours are always accepted, worse ones with
+    probability exp(-delta / temp) (Metropolis criterion). The temperature decreases by
+    `cooling_rate` each iteration, until `temp_end` or `max_iter` is reached.
+
+    Parameters (selection)
+    ----------------------
+    sel_type : "full" to select from all (model, year) combinations in `df`, or
+        "subset" to select from the list of combinations given in `subset`.
+    n_projections_init, n_projections_full : number of random projections for the
+        score. Every neighbour is scored with `n_projections_init`; if
+        `n_projections_full` is not None, promising neighbours (within 10% of the
+        current score, or accepted anyway) are re-scored with `n_projections_full`
+        before the final accept/reject step.
 
     Returns
     -------
@@ -44,11 +60,14 @@ def simulated_annealing_selection(
     rng = np.random.default_rng(random_state)
 
     # --- SA control tweaks ---
+    # Reheating: if no new best is found for REHEAT_G iterations, the temperature is
+    # multiplied by REHEAT_GAMMA to escape plateaus. Slower cooling needs a longer
+    # patience, otherwise the reheating outpaces the cooling.
     if cooling_rate < 0.99:
         REHEAT_G = 100  # iterations without new best before reheating
     elif cooling_rate < 0.998:
         REHEAT_G = 300
-    # HACK: else works untill cr = 0.9992!
+    # NOTE: tested up to cooling_rate = 0.9992
     else:
         REHEAT_G = 750  # otherwise the heating overshoots.
 
@@ -93,6 +112,8 @@ def simulated_annealing_selection(
             break
 
         # --- mixed-move: 1-swap / multi-swap ---
+        # Mostly small moves (swap 1 year), sometimes larger jumps. The move sizes were
+        # tuned for selecting 5 years (n_select < 10) and 30 years (n_select >= 10).
         remaining = [c for c in all_combos if c not in current]
 
         u = rng.random()

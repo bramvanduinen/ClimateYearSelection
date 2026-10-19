@@ -1,3 +1,14 @@
+"""
+Download the PECD 4.2 climate and energy data from the Copernicus Climate Data Store.
+
+Downloads wind and solar capacity factors, 2 m temperature and hydropower generation
+for all MODELS and YEARS (see constants.py), SSP2-4.5 future projections. Files are
+unzipped into the INPUT_DIR_* folders set in RUN_SETTINGS.py.
+
+Requires a CDS account and API key, see https://cds.climate.copernicus.eu/how-to-api
+Only needs to be run once; downloading all files can take a long time.
+"""
+
 # %%
 import shutil
 from pathlib import Path
