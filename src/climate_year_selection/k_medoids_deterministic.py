@@ -12,7 +12,7 @@ from sklearn.decomposition import PCA
 from sklearn.preprocessing import StandardScaler
 from sklearn_extra.cluster import KMedoids
 
-from cluster_weather_years.constants import SEASONS
+from climate_year_selection.constants import SEASONS
 
 
 # %%

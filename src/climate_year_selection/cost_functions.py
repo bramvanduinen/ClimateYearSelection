@@ -8,7 +8,7 @@ import numpy as np
 import pandas as pd
 from ot import sliced_wasserstein_distance
 
-from cluster_weather_years.constants import SEASONS
+from climate_year_selection.constants import SEASONS
 
 
 # %% SA Scoring functions

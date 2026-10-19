@@ -34,17 +34,17 @@ from RUN_SETTINGS import (
 )
 from tqdm import tqdm
 
-from cluster_weather_years.constants import BASE_OUTPUT, HYDROLOGICAL_YEARS, MODELS
-from cluster_weather_years.cost_functions import (
+from climate_year_selection.constants import BASE_OUTPUT, HYDROLOGICAL_YEARS, MODELS
+from climate_year_selection.cost_functions import (
     wasserstein_score,
     wasserstein_seasonal_score,
 )
-from cluster_weather_years.evaluation import (
+from climate_year_selection.evaluation import (
     perform_physical_evaluation,
     plot_lollipop_by_country,
 )
-from cluster_weather_years.evaluation_plot_helpers import plot_results_with_pareto
-from cluster_weather_years.filtered_random_search import (
+from climate_year_selection.evaluation_plot_helpers import plot_results_with_pareto
+from climate_year_selection.filtered_random_search import (
     init_worker,
     run_batch,
     score_df,
@@ -52,12 +52,12 @@ from cluster_weather_years.filtered_random_search import (
     score_tuning,
     score_tuning_seasonal,
 )
-from cluster_weather_years.helper_functions import (
+from climate_year_selection.helper_functions import (
     build_df_from_modelyears,
     draw_random_modelyears,
 )
-from cluster_weather_years.k_medoids_stochastic import k_medoids_stochastic
-from cluster_weather_years.sa import run_sa
+from climate_year_selection.k_medoids_stochastic import k_medoids_stochastic
+from climate_year_selection.sa import run_sa
 
 # pylint: enable=import-error
 

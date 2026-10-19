@@ -9,13 +9,13 @@ from ot import sliced_wasserstein_distance
 
 # fmt: off
 # pylint: disable=import-error
-from cluster_weather_years.constants import (
+from climate_year_selection.constants import (
     BASE_OUTPUT,
     DROUGHT_MIN_DURATION,
     DROUGHT_PERCENTILE,
     PROBS,
 )
-from cluster_weather_years.helper_functions import (
+from climate_year_selection.helper_functions import (
     build_df_from_modelyears,
 )
 

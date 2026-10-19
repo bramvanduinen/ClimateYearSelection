@@ -2,7 +2,7 @@
 # Make all configuration changes here.
 import os
 
-from cluster_weather_years.constants import BASE_INPUT
+from climate_year_selection.constants import BASE_INPUT
 
 # =============================================================================
 # GENERAL RUN SETTINGS

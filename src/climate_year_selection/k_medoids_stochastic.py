@@ -12,8 +12,8 @@ import pandas as pd
 from sklearn.preprocessing import StandardScaler
 from sklearn_extra.cluster import KMedoids
 
-from cluster_weather_years.constants import SEASONS
-from cluster_weather_years.cost_functions import (
+from climate_year_selection.constants import SEASONS
+from climate_year_selection.cost_functions import (
     wasserstein_score,
     wasserstein_seasonal_score,
 )

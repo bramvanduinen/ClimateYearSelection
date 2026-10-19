@@ -5,7 +5,7 @@ import os
 import numpy as np
 import pandas as pd
 
-from cluster_weather_years.constants import (
+from climate_year_selection.constants import (
     COUNTRIES,
     HYDRO_VARS,
     INPUT_DIR_HYDRO,

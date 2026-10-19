@@ -37,16 +37,15 @@ pip install -e .
 
 `pip install -r requirements.txt` installs all required dependencies with pinned versions.
 
-`pip install -e .` installs the `cluster_weather_years` library from `src/` in editable mode, meaning it links directly to the source files rather than copying them, so any local changes to the library are picked up immediately without reinstalling.
+`pip install -e .` installs the `climate_year_selection` library from `src/` in editable mode, meaning it links directly to the source files rather than copying them, so any local changes to the library are picked up immediately without reinstalling.
 
-> **Note:** `cluster_weather_years` is not an appropriate name anymore. Will rename to `climate_year_selection` in the future.
 
 
 ## Configuration
 
 Before running the pipeline, two configuration files need to be set up:
 
-**1. `src/cluster_weather_years/constants.py`**
+**1. `src/climate_year_selection/constants.py`**
 
 Set the base input and output paths:
 
@@ -135,7 +134,7 @@ Generates additional evaluation figures from a completed run.
 ## Project structure
 
 ```
-src/cluster_weather_years/       # core library
+src/climate_year_selection/       # core library
     constants.py                 # paths, models, hydrological years, seasons
     cost_functions.py            # (S)SWD scoring functions used by the search
     sa.py                        # simulated annealing

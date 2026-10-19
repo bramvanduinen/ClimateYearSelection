@@ -14,18 +14,18 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
-from cluster_weather_years.constants import (
+from climate_year_selection.constants import (
     BASE_OUTPUT,
     HYDROLOGICAL_YEARS,
     SEASONS,
 )
-from cluster_weather_years.evaluation import (
+from climate_year_selection.evaluation import (
     build_score_tables,
     compute_all_metrics,
     format_mean_std,
     sswd_seed_uncertainty,
 )
-from cluster_weather_years.evaluation_plot_helpers import (
+from climate_year_selection.evaluation_plot_helpers import (
     _build_plot_series,
     _filter_season,
     _plot_correlation_panels,
@@ -40,7 +40,7 @@ from cluster_weather_years.evaluation_plot_helpers import (
     plot_seasonal_qq,
     pretty_var,
 )
-from cluster_weather_years.helper_functions import build_df_from_modelyears
+from climate_year_selection.helper_functions import build_df_from_modelyears
 
 # ═══════════════════════════════════════════════════════════════════════
 # CONFIGURATION — edit these toggles

@@ -4,7 +4,7 @@ from pathlib import Path
 
 import cdsapi
 
-from cluster_weather_years.constants import BASE_INPUT
+from climate_year_selection.constants import BASE_INPUT
 
 # %%
 # build requests and output dirs
