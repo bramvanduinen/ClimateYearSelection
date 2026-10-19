@@ -10,7 +10,6 @@ from ot import sliced_wasserstein_distance
 # fmt: off
 # pylint: disable=import-error
 from climate_year_selection.constants import (
-    BASE_OUTPUT,
     DROUGHT_MIN_DURATION,
     DROUGHT_PERCENTILE,
     PROBS,

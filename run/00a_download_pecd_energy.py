@@ -4,7 +4,17 @@ from pathlib import Path
 
 import cdsapi
 
-from climate_year_selection.constants import BASE_INPUT, MODELS, YEARS
+# pylint: disable=import-error
+from RUN_SETTINGS import (
+    INPUT_DIR_HYDRO_RAW,
+    INPUT_DIR_SOLAR,
+    INPUT_DIR_TEMP,
+    INPUT_DIR_WIND_RAW,
+)
+
+from climate_year_selection.constants import MODELS, YEARS
+
+# pylint: enable=import-error
 
 # %%
 # build requests and output dirs
@@ -42,13 +52,13 @@ request_hydro = {
     "spatial_resolution": ["szon"],
 }
 
-output_dir_wind = Path(f"{BASE_INPUT}/pecd_data/energy/wind_peof_peon")
+output_dir_wind = Path(INPUT_DIR_WIND_RAW)
 output_dir_wind.mkdir(parents=True, exist_ok=True)
-output_dir_solar = Path(f"{BASE_INPUT}/pecd_data/energy/solar")
+output_dir_solar = Path(INPUT_DIR_SOLAR)
 output_dir_solar.mkdir(parents=True, exist_ok=True)
-output_dir_temp = Path(f"{BASE_INPUT}/pecd_data/energy/temp")
+output_dir_temp = Path(INPUT_DIR_TEMP)
 output_dir_temp.mkdir(parents=True, exist_ok=True)
-output_dir_hydro = Path(f"{BASE_INPUT}/pecd_data/energy/hydro_weekly")
+output_dir_hydro = Path(INPUT_DIR_HYDRO_RAW)
 output_dir_hydro.mkdir(parents=True, exist_ok=True)
 
 client = cdsapi.Client()

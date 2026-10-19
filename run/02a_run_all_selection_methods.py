@@ -14,9 +14,11 @@ import pandas as pd
 
 # pylint: disable=import-error
 from RUN_SETTINGS import (
+    BASE_OUTPUT,
     DF_PROD_DEMAND_FNAME,
     FRS_ITER_MULTIPLIER,
     HYDRO,
+    HYDROLOGICAL_YEARS,
     MATCH_COUNTRIES,
     N_PROJECTIONS_FULL,
     N_PROJECTIONS_INIT,
@@ -34,7 +36,7 @@ from RUN_SETTINGS import (
 )
 from tqdm import tqdm
 
-from climate_year_selection.constants import BASE_OUTPUT, HYDROLOGICAL_YEARS, MODELS
+from climate_year_selection.constants import MODELS
 from climate_year_selection.cost_functions import (
     wasserstein_score,
     wasserstein_seasonal_score,
@@ -133,8 +135,10 @@ def setup_output_directories():
     os.makedirs(output_dir_eval_country, exist_ok=True)
 
     # Copy RUN_SETTINGS.py to output dir for record keeping
+    run_dir = os.path.dirname(os.path.abspath(__file__))
     shutil.copy(
-        "RUN_SETTINGS.py", os.path.join(output_dir_run, "RUN_SETTINGS_of_run.py")
+        os.path.join(run_dir, "RUN_SETTINGS.py"),
+        os.path.join(output_dir_run, "RUN_SETTINGS_of_run.py"),
     )
 
     return (

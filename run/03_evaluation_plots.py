@@ -14,11 +14,10 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
-from climate_year_selection.constants import (
-    BASE_OUTPUT,
-    HYDROLOGICAL_YEARS,
-    SEASONS,
-)
+# pylint: disable=import-error
+from RUN_SETTINGS import BASE_OUTPUT
+
+from climate_year_selection.constants import SEASONS
 from climate_year_selection.evaluation import (
     build_score_tables,
     compute_all_metrics,
@@ -41,6 +40,8 @@ from climate_year_selection.evaluation_plot_helpers import (
     pretty_var,
 )
 from climate_year_selection.helper_functions import build_df_from_modelyears
+
+# pylint: enable=import-error
 
 # ═══════════════════════════════════════════════════════════════════════
 # CONFIGURATION — edit these toggles
@@ -133,6 +134,8 @@ DF_PROD_DEMAND_FNAME = _run_settings["DF_PROD_DEMAND_FNAME"]
 VARS_TO_MATCH = _run_settings["VARS_TO_MATCH"]
 MATCH_COUNTRIES = _run_settings["MATCH_COUNTRIES"]
 SELECTED_YEARS = _run_settings["NUM_TO_SELECT"]
+# Runs made before HYDROLOGICAL_YEARS moved to RUN_SETTINGS.py used 2016-2045
+HYDROLOGICAL_YEARS = _run_settings.get("HYDROLOGICAL_YEARS", range(2016, 2046))
 
 df_daily = pd.read_parquet(DF_PROD_DEMAND_FNAME)
 df_daily["Date"] = pd.to_datetime(df_daily["Date"])

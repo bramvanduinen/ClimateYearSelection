@@ -32,8 +32,10 @@ import pandas as pd
 
 # pylint: disable=import-error
 from RUN_SETTINGS import (
+    BASE_OUTPUT,
     DF_PROD_DEMAND_FNAME,
     HYDRO,
+    HYDROLOGICAL_YEARS,
     MATCH_COUNTRIES,
     N_PROJECTIONS_FULL,
     N_PROJECTIONS_INIT,
@@ -48,7 +50,6 @@ from RUN_SETTINGS import (
     YEAR_COL,
 )
 
-from climate_year_selection.constants import BASE_OUTPUT, HYDROLOGICAL_YEARS
 from climate_year_selection.cost_functions import (
     wasserstein_score,
     wasserstein_seasonal_score,

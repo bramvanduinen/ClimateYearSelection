@@ -92,7 +92,6 @@ typing_extensions==4.13.2
 tzdata==2025.2
 urllib3==2.5.0
 wcwidth==0.2.13
--e git+ssh://git@github.com/bramvanduinen/weather_year_selection.git@c0f5f0ea5d49beb608a205573a5a221536bff565#egg=weather_year_selection
 widgetsnbextension==4.0.14
 xarray==2025.4.0
 yarl==1.22.0

@@ -2,7 +2,23 @@
 # Make all configuration changes here.
 import os
 
-from climate_year_selection.constants import BASE_INPUT
+# =============================================================================
+# PATHS
+# =============================================================================
+BASE_INPUT = "/path/to/inputs/"  # raw PECD data, ERAA files and preprocessed dataframes
+BASE_OUTPUT = "/path/to/outputs/"  # one subfolder per run is created here
+
+# Raw and processed PECD data (downloaded in 00a, wind aggregated to NUTS0 in 00b)
+INPUT_DIR_WIND_RAW = os.path.join(BASE_INPUT, "pecd_data/energy/wind_peof_peon")
+INPUT_DIR_WIND = os.path.join(BASE_INPUT, "pecd_data/energy/wind")
+INPUT_DIR_SOLAR = os.path.join(BASE_INPUT, "pecd_data/energy/solar")
+INPUT_DIR_TEMP = os.path.join(BASE_INPUT, "pecd_data/energy/temp")
+INPUT_DIR_HYDRO_RAW = os.path.join(BASE_INPUT, "pecd_data/energy/hydro_weekly")
+INPUT_DIR_HYDRO = os.path.join(BASE_INPUT, "pecd_data/energy/hydro")
+
+# ERAA2024 installed capacities and annual demand (used in 01_build_dataset.ipynb)
+ERAA_CAPACITIES_FNAME = os.path.join(BASE_INPUT, "ERAA2024_GenerationCapacities.xlsx")
+ERAA_DEMAND_FNAME = os.path.join(BASE_INPUT, "ERAA2024_Aggregated_Demand.xlsx")
 
 # =============================================================================
 # GENERAL RUN SETTINGS
@@ -12,6 +28,10 @@ HYDRO = True  # whether to include hydro variables in matching
 SEASONAL = True  # True: seasonal scoring/matching  |  False: annual
 NUM_TO_SELECT = 5  # number of years to select
 YEAR_COL = "Hydrological_year"  # "Hydrological_year" or "Calendar_year"
+
+# Reference period: years of every model that together form the reference ensemble
+# from which the subset is selected. Hydrological years run from April to March.
+HYDROLOGICAL_YEARS = range(2016, 2046)
 
 # Seed offset applied to all experiment seeds (SA, k-medoids, random draws).
 # Default = 0. Each experiment gets a unique seed by adding its batch_seed

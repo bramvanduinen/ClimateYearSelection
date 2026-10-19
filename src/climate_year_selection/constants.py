@@ -1,36 +1,15 @@
-# list of constants
-import os
-
+# Constants used in the calculations. User settings (paths, countries, reference period,
+# algorithm settings) live in run/RUN_SETTINGS.py instead.
 import numpy as np
-from matplotlib import cm
 
-# YEARS = range(2015, 2045)
-YEARS = range(
-    2016, 2047
-)  # updated because hydro data only starts in July 2015, so incomplete hydro year.
-HYDROLOGICAL_YEARS = range(2016, 2046)
+# =============================================================================
+# PECD 4.2 DATASET DEFINITION
+# Tied to the downloaded PECD files and their names (see 00a_download_pecd_energy.py)
+# =============================================================================
 
-# quantiles for QQ-comparison
-dense_low = np.linspace(0.005, 0.05, 9, endpoint=False)
-coarse = np.linspace(0.05, 0.95, 91)
-dense_high = np.linspace(0.955, 0.995, 9)
-PROBS = np.concatenate([dense_low, coarse, dense_high])
-
-# extended winter/summer
-SEASONS = {"Winter": [10, 11, 12, 1, 2, 3], "Summer": [4, 5, 6, 7, 8, 9]}
-
-COLORS = cm.get_cmap("tab10").colors
-
-# TODO: move these to RUN_SETTINGS.py. Doesn't make sense to set paths in method.
-# Maybe the whole constants.py should be moved there actually, since it's mostly run settings and paths.
-BASE_INPUT = "/net/pc230050/nobackup/users/duinen/04_weather_year_selection/inputs/"
-BASE_OUTPUT = "/net/pc230050/nobackup/users/duinen/04_weather_year_selection/outputs/"
-
-INPUT_DIR_WIND = os.path.join(BASE_INPUT, "pecd_data/energy/wind")
-INPUT_DIR_SOLAR = os.path.join(BASE_INPUT, "pecd_data/energy/solar")
-INPUT_DIR_TEMP = os.path.join(BASE_INPUT, "pecd_data/energy/temp")
-INPUT_DIR_HYDRO_RAW = os.path.join(BASE_INPUT, "pecd_data/energy/hydro_weekly")
-INPUT_DIR_HYDRO = os.path.join(BASE_INPUT, "pecd_data/energy/hydro")
+# Calendar years that are downloaded. Hydro data only starts in July 2015, so 2015 is
+# left out to avoid an incomplete hydrological year.
+YEARS = range(2016, 2047)
 
 MODELS = [
     "cmcc_cm2_sr5",
@@ -41,6 +20,7 @@ MODELS = [
     "mri_esm2_0",
 ]
 
+# Model names as they appear in the PECD file names (same order as MODELS)
 MODELS_FNAME = [
     "CMCC_CMR5",
     "ECEC_ECE3",
@@ -49,18 +29,31 @@ MODELS_FNAME = [
     "BCC-_BCCS",
     "MRI-_MRM2",
 ]
-# COUNTRIES = ["NL", "DE", "BE", "FR"]  # for now
+
 # fmt: off
 COUNTRIES = [
     "AL", "AT", "BE", "BA", "BG", "HR", "CZ", "DK", "EE",
     "EL", "FI", "FR", "DE", "HU", "IE", "IT", "LV", "LT",
     "LU", "MT", "ME", "MK", "NL", "NO", "PL", "PT", "RO",
     "RS", "SK", "SI", "ES", "SE", "CH", "UK", "TR",
-] # full list of ENTSO-E countries
+] # full list of ENTSO-E countries (EL = Greece in Eurostat notation)
 # fmt: on
 
+# Hydro technologies: run-of-river, reservoir, run-of-river with pondage
 HYDRO_VARS = ["HRO", "HRG", "HPO"]
 
+# =============================================================================
+# METHOD AND EVALUATION CONVENTIONS
+# =============================================================================
+
+# Seasons used for the seasonal score (SSWD): extended winter/summer
+SEASONS = {"Winter": [10, 11, 12, 1, 2, 3], "Summer": [4, 5, 6, 7, 8, 9]}
+
+# Quantiles for QQ-comparison, denser in the tails
+dense_low = np.linspace(0.005, 0.05, 9, endpoint=False)
+coarse = np.linspace(0.05, 0.95, 91)
+dense_high = np.linspace(0.955, 0.995, 9)
+PROBS = np.concatenate([dense_low, coarse, dense_high])
 
 # Renewable drought settings (only used for physical evaluation)
 DROUGHT_PERCENTILE = 5  # Below P5 = low renewable day

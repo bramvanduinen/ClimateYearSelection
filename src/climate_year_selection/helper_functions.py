@@ -8,11 +8,6 @@ import pandas as pd
 from climate_year_selection.constants import (
     COUNTRIES,
     HYDRO_VARS,
-    INPUT_DIR_HYDRO,
-    INPUT_DIR_HYDRO_RAW,
-    INPUT_DIR_SOLAR,
-    INPUT_DIR_TEMP,
-    INPUT_DIR_WIND,
     MODELS,
     MODELS_FNAME,
     YEARS,
@@ -72,8 +67,11 @@ def build_df_random(
 # %% Functions for building prod/demand dataframes from raw CSV files
 
 
-def build_df():
-    """Build dataframe for COUNTRIES based on all raw CSV files downloaded from PECD."""
+def build_df(input_dir_wind, input_dir_solar, input_dir_temp):
+    """Build dataframe for COUNTRIES based on all raw CSV files downloaded from PECD.
+
+    The input directories are set in RUN_SETTINGS.py (INPUT_DIR_WIND etc.).
+    """
     frames_hourly = []
 
     for model_fname, model_name in zip(MODELS_FNAME, MODELS):
@@ -91,21 +89,21 @@ def build_df():
             # file_hydro = f"P_CMI6_{model_fname}_HRO_0000m_Pecd_SZON_S203712280000_E203812200000_NRG_TIM_07d_NA-_noc_org_NA_SP245_NA---_StRnF_PECD4.2_fv1.csv"
 
             df_wind_off = pd.read_csv(
-                os.path.join(INPUT_DIR_WIND, file_wind_off),
+                os.path.join(input_dir_wind, file_wind_off),
                 # skiprows=52,
             )
             df_wind_on = pd.read_csv(
-                os.path.join(INPUT_DIR_WIND, file_wind_on),
+                os.path.join(input_dir_wind, file_wind_on),
                 # skiprows=52,
             )
 
             df_solar = pd.read_csv(
-                os.path.join(INPUT_DIR_SOLAR, file_solar),
+                os.path.join(input_dir_solar, file_solar),
                 skiprows=52,
             )
 
             df_temp = pd.read_csv(
-                os.path.join(INPUT_DIR_TEMP, file_temp),
+                os.path.join(input_dir_temp, file_temp),
                 skiprows=52,
             )
 
@@ -218,8 +216,12 @@ def process_hydro_file(df_hydro: pd.DataFrame) -> pd.DataFrame:
     return df_hydro_country_per_hour
 
 
-def process_all_hydro_files():
-    """Build hydro generation dataframe for COUNTRIES based on all raw CSV files downloaded from PECD."""
+def process_all_hydro_files(input_dir_hydro_raw, input_dir_hydro):
+    """Build hydro generation dataframe for COUNTRIES based on all raw CSV files downloaded from PECD.
+
+    Reads the weekly files from input_dir_hydro_raw and writes hourly, country-level
+    files to input_dir_hydro (both set in RUN_SETTINGS.py).
+    """
 
     for model_fname, _ in zip(MODELS_FNAME, MODELS):
         for hydro_var in HYDRO_VARS:
@@ -227,7 +229,7 @@ def process_all_hydro_files():
             fname_out = (
                 f"P_CMI6_{model_fname}_{hydro_var}_{YEARS[0]}_{YEARS[-1]}_NUTS0.csv"
             )
-            files_hydro = glob.glob(os.path.join(INPUT_DIR_HYDRO_RAW, filename_hydro))
+            files_hydro = glob.glob(os.path.join(input_dir_hydro_raw, filename_hydro))
             df_hydro_raw = pd.concat(
                 (pd.read_csv(f, comment="#") for f in files_hydro), ignore_index=True
             )
@@ -236,7 +238,7 @@ def process_all_hydro_files():
             df_hydro_var = process_hydro_file(df_hydro_raw).add_suffix(
                 f"_{hydro_var}_prod"
             )
-            df_hydro_var.to_csv(os.path.join(INPUT_DIR_HYDRO, fname_out))
+            df_hydro_var.to_csv(os.path.join(input_dir_hydro, fname_out))
 
 
 # %%
