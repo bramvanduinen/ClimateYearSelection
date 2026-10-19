@@ -1,3 +1,28 @@
+"""
+Run all four selection methods from the paper and compare them.
+
+Use this script to replicate the method comparison in the paper. For a new application,
+02b_run_simulated_annealing.py (SA only) is faster and gives the same SA results.
+
+Methods, in this order: Simulated Annealing (SA), Random Search (RS), K-Medoids and
+Filtered Random Search (FRS). RS and K-Medoids get the same compute budget as SA
+(total number of SA iterations); FRS gets FRS_ITER_MULTIPLIER times that budget.
+All selections are then re-scored with the same metrics, scored per country, and a
+set of automatic evaluation plots is made.
+
+Inputs:  RUN_SETTINGS.py and the dataframe built in 01.
+Outputs (in BASE_OUTPUT/<RUNNAME>_<timestamp>/):
+    all_year_selections_scored.csv          all selections of all methods, best first
+    all_year_selections_country_scores.csv  the same, scored per country
+    simulated_annealing/, random_search/, k_medoids/, filtered_random_search/
+                                            raw results per method
+    evaluation/                             automatic evaluation plots
+    run_log.txt, RUN_SETTINGS_of_run.py
+
+Run from the run/ directory:
+    python 02a_run_all_selection_methods.py
+"""
+
 # %%
 #### imports ####
 import logging
@@ -14,9 +39,11 @@ import pandas as pd
 
 # pylint: disable=import-error
 from RUN_SETTINGS import (
+    BASE_OUTPUT,
     DF_PROD_DEMAND_FNAME,
     FRS_ITER_MULTIPLIER,
     HYDRO,
+    HYDROLOGICAL_YEARS,
     MATCH_COUNTRIES,
     N_PROJECTIONS_FULL,
     N_PROJECTIONS_INIT,
@@ -34,17 +61,17 @@ from RUN_SETTINGS import (
 )
 from tqdm import tqdm
 
-from cluster_weather_years.constants import BASE_OUTPUT, HYDROLOGICAL_YEARS, MODELS
-from cluster_weather_years.cost_functions import (
+from climate_year_selection.constants import MODELS
+from climate_year_selection.cost_functions import (
     wasserstein_score,
     wasserstein_seasonal_score,
 )
-from cluster_weather_years.evaluation import (
+from climate_year_selection.evaluation import (
     perform_physical_evaluation,
     plot_lollipop_by_country,
 )
-from cluster_weather_years.evaluation_plot_helpers import plot_results_with_pareto
-from cluster_weather_years.filtered_random_search import (
+from climate_year_selection.evaluation_plot_helpers import plot_results_with_pareto
+from climate_year_selection.filtered_random_search import (
     init_worker,
     run_batch,
     score_df,
@@ -52,12 +79,12 @@ from cluster_weather_years.filtered_random_search import (
     score_tuning,
     score_tuning_seasonal,
 )
-from cluster_weather_years.helper_functions import (
+from climate_year_selection.helper_functions import (
     build_df_from_modelyears,
     draw_random_modelyears,
 )
-from cluster_weather_years.k_medoids_stochastic import k_medoids_stochastic
-from cluster_weather_years.sa import run_sa
+from climate_year_selection.k_medoids_stochastic import k_medoids_stochastic
+from climate_year_selection.sa import run_sa
 
 # pylint: enable=import-error
 
@@ -85,7 +112,6 @@ def setup_output_directories():
     """0. Create output directories."""
     rundate = datetime.now().strftime("%Y%m%d_%H%M")
     output_dir_run = os.path.join(BASE_OUTPUT, f"{RUNNAME}_{rundate}")
-    # output_dir_run = os.path.join(BASE_OUTPUT, f"{RUNNAME}")
 
     os.makedirs(output_dir_run, exist_ok=True)
 
@@ -133,8 +159,10 @@ def setup_output_directories():
     os.makedirs(output_dir_eval_country, exist_ok=True)
 
     # Copy RUN_SETTINGS.py to output dir for record keeping
+    run_dir = os.path.dirname(os.path.abspath(__file__))
     shutil.copy(
-        "RUN_SETTINGS.py", os.path.join(output_dir_run, "RUN_SETTINGS_of_run.py")
+        os.path.join(run_dir, "RUN_SETTINGS.py"),
+        os.path.join(output_dir_run, "RUN_SETTINGS_of_run.py"),
     )
 
     return (
@@ -237,7 +265,7 @@ def _draw_random_batch(args):
 def run_random_search(model_years, vars_non_nan, num_draws_total, output_dir_random):
     """3. Random Search.
 
-    Draws are split into NUM_EXPERIMENTS batches (each seeded by its experiment index).
+    Draws are split into NUM_EXPERIMENTS batches (batch i uses seed i + SEED_OFFSET).
     Only the best (lowest wasserstein score) from each batch is kept, yielding
     exactly NUM_EXPERIMENTS results — one per batch.
     """
@@ -251,7 +279,7 @@ def run_random_search(model_years, vars_non_nan, num_draws_total, output_dir_ran
     )
 
     n_workers = min(os.cpu_count() or 1, NUM_EXPERIMENTS)
-    # Each experiment gets its own unique seed (experiment index)
+    # Each experiment gets its own unique seed (experiment index + SEED_OFFSET)
     job_args = [
         (
             seed,
@@ -262,7 +290,7 @@ def run_random_search(model_years, vars_non_nan, num_draws_total, output_dir_ran
             N_PROJECTIONS_INIT,
             N_PROJECTIONS_REFINE,
         )
-        for seed in range(NUM_EXPERIMENTS)
+        for seed in range(SEED_OFFSET, SEED_OFFSET + NUM_EXPERIMENTS)
     ]
 
     random_search_results = []
@@ -336,9 +364,8 @@ def run_kmedoids(df_ref, vars_non_nan, sa_total_iters, output_dir_kmedoids):
 
 
 def run_simulated_annealing(df_ref, vars_non_nan, output_dir_sa):
-    """2. Simulated Annealing (or load fallback results)."""
+    """2. Simulated Annealing: NUM_EXPERIMENTS independent runs, one seed each."""
     logger = logging.getLogger(__name__)
-    # if RUN_SA:
     logger.info(
         f"##### 2. Performing Simulated Annealing in {'seasonal' if SEASONAL else 'annual'} mode... #####"
     )
@@ -450,8 +477,8 @@ def run_filtered_random_search(
     n_batches = NUM_EXPERIMENTS
     batch_size_frs = math.ceil(frs_iterations / n_batches)
     frs_total = n_batches * batch_size_frs  # may be slightly > frs_iterations
-    # Seeds: experiments 0..NUM_EXPERIMENTS-1
-    frs_seeds = list(range(n_batches))
+    # Seeds: SEED_OFFSET .. SEED_OFFSET + NUM_EXPERIMENTS - 1 (as for the other methods)
+    frs_seeds = list(range(SEED_OFFSET, SEED_OFFSET + n_batches))
 
     # Each record in pass_rec already contains "model_years" (set inside
     # score_df / score_df_seasonal), so it lands in df_frs_results automatically.

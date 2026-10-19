@@ -1,0 +1,30 @@
+cff-version: 1.2.0
+message: "If you use this code, please cite the paper below."
+title: "Climate Year Selection"
+type: software
+license: MIT
+repository-code: "https://github.com/bramvanduinen/weather_year_selection"
+authors:
+  - family-names: "van Duinen"
+    given-names: "Bram"
+    affiliation: "KNMI"
+    email: "bram.van.duinen@knmi.nl"
+preferred-citation:
+  type: article
+  title: "Bridging the climate to energy data gap: simulated annealing for representative climate year selection"
+  authors:
+    - family-names: "van Duinen"
+      given-names: "Bram"
+    - family-names: "van der Wiel"
+      given-names: "Karin"
+    - family-names: "Thorey"
+      given-names: "Jean"
+    - family-names: "Stoop"
+      given-names: "Laurens"
+  journal: "Applied Energy"
+  year: 2026
+  # TODO: add the journal DOI once published. Until then, the arXiv preprint:
+  identifiers:
+    - type: doi
+      value: "10.48550/arXiv.2605.15958"
+      description: "arXiv preprint"

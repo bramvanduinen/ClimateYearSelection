@@ -1,5 +1,7 @@
 """
-NOTE: This module contains cost functions for optimization. Evaluation scores are in evaluation_scores.py
+Cost functions minimised by the selection methods: the Sliced Wasserstein Distance
+(SWD) and its seasonal variant (SSWD) between a candidate subset of (model, year)
+combinations and the full reference dataset. Evaluation metrics are in evaluation.py.
 """
 
 from typing import Sequence, Tuple
@@ -8,7 +10,7 @@ import numpy as np
 import pandas as pd
 from ot import sliced_wasserstein_distance
 
-from cluster_weather_years.constants import SEASONS
+from climate_year_selection.constants import SEASONS
 
 
 # %% SA Scoring functions
@@ -31,7 +33,11 @@ def wasserstein_score(
     year_col: str = "year",
     n_projections: int = 50,
 ) -> float:
-    """Wasserstein score: Wasserstein distance between full sample and selected years."""
+    """Sliced Wasserstein Distance (SWD) between selected years and the full dataset.
+
+    The multivariate daily distribution of `variables` in the selected (model, year)
+    combinations is compared to that of all rows in `df`. Lower is better.
+    """
     idx_sel = build_selection_mask(df, combos, model_col=model_col, year_col=year_col)
 
     # HACK: Hydro contains 0 instead of nans, so there have to be non-zero values.
@@ -40,8 +46,8 @@ def wasserstein_score(
     sub_data = df.loc[idx_sel, vars_non_nan].to_numpy()
     full_data = df[vars_non_nan].to_numpy()
 
-    # NOTE: hardcoded
-    # set with fixed seed, so that projection is constant over optimisation
+    # Fixed seed: the same random projections are used for every candidate, so scores
+    # are directly comparable throughout the optimisation.
     return sliced_wasserstein_distance(
         sub_data, full_data, n_projections=n_projections, seed=42
     )
@@ -55,8 +61,12 @@ def wasserstein_seasonal_score(
     year_col: str = "year",
     n_projections: int = 50,
 ) -> float:
-    """Wasserstein score: Wasserstein distance between full sample and selected years."""
+    """Seasonal Sliced Wasserstein Distance (SSWD).
 
+    The SWD is computed separately for each season in SEASONS (selected years vs. the
+    full dataset in that season), and the worst (largest) season sets the score. This
+    makes sure that no season is badly represented. Lower is better.
+    """
     idx_sel = build_selection_mask(df, combos, model_col=model_col, year_col=year_col)
     vars_non_nan = [var for var in variables if np.max(df[var]) > 0]
 

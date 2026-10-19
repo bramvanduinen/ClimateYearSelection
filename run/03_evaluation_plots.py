@@ -14,18 +14,17 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
-from cluster_weather_years.constants import (
-    BASE_OUTPUT,
-    HYDROLOGICAL_YEARS,
-    SEASONS,
-)
-from cluster_weather_years.evaluation import (
+# pylint: disable=import-error
+from RUN_SETTINGS import BASE_OUTPUT
+
+from climate_year_selection.constants import SEASONS
+from climate_year_selection.evaluation import (
     build_score_tables,
     compute_all_metrics,
     format_mean_std,
     sswd_seed_uncertainty,
 )
-from cluster_weather_years.evaluation_plot_helpers import (
+from climate_year_selection.evaluation_plot_helpers import (
     _build_plot_series,
     _filter_season,
     _plot_correlation_panels,
@@ -40,7 +39,9 @@ from cluster_weather_years.evaluation_plot_helpers import (
     plot_seasonal_qq,
     pretty_var,
 )
-from cluster_weather_years.helper_functions import build_df_from_modelyears
+from climate_year_selection.helper_functions import build_df_from_modelyears
+
+# pylint: enable=import-error
 
 # ═══════════════════════════════════════════════════════════════════════
 # CONFIGURATION — edit these toggles
@@ -58,12 +59,10 @@ CALC_EQUIVALENT_TO_N_YEARS = False  # If True, compute how many random draws wou
 COMPARE_30_VS_36 = (
     False  # If True, compare 30yr vs 36yr random draw quality. Only had to be run once.
 )
-OLD_NAMING = True
+OLD_NAMING = False  # True only for old runs where FRS was labelled 'HBF' and random search 'random_draws'
 
 RUNNAME_ = "RUNNAME"  # Enter the runname you want to evaluate here
 
-
-SELECTED_YEARS = 30
 
 # Plot layout
 PLOT_ROWS, PLOT_COLS = 3, 2
@@ -134,6 +133,9 @@ with open(fname_settings) as f:
 DF_PROD_DEMAND_FNAME = _run_settings["DF_PROD_DEMAND_FNAME"]
 VARS_TO_MATCH = _run_settings["VARS_TO_MATCH"]
 MATCH_COUNTRIES = _run_settings["MATCH_COUNTRIES"]
+SELECTED_YEARS = _run_settings["NUM_TO_SELECT"]
+# Runs made before HYDROLOGICAL_YEARS moved to RUN_SETTINGS.py used 2016-2045
+HYDROLOGICAL_YEARS = _run_settings.get("HYDROLOGICAL_YEARS", range(2016, 2046))
 
 df_daily = pd.read_parquet(DF_PROD_DEMAND_FNAME)
 df_daily["Date"] = pd.to_datetime(df_daily["Date"])

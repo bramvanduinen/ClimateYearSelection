@@ -3,15 +3,15 @@ import numpy as np
 from ot import sliced_wasserstein_distance
 from scipy.stats import energy_distance
 
-from cluster_weather_years.constants import (
+from climate_year_selection.constants import (
     PROBS,
     SEASONS,
 )
-from cluster_weather_years.cost_functions import (
+from climate_year_selection.cost_functions import (
     wasserstein_score,
     wasserstein_seasonal_score,
 )
-from cluster_weather_years.helper_functions import (
+from climate_year_selection.helper_functions import (
     build_df_from_modelyears,
     draw_random_modelyears,
 )

@@ -9,13 +9,12 @@ from ot import sliced_wasserstein_distance
 
 # fmt: off
 # pylint: disable=import-error
-from cluster_weather_years.constants import (
-    BASE_OUTPUT,
+from climate_year_selection.constants import (
     DROUGHT_MIN_DURATION,
     DROUGHT_PERCENTILE,
     PROBS,
 )
-from cluster_weather_years.helper_functions import (
+from climate_year_selection.helper_functions import (
     build_df_from_modelyears,
 )
 
@@ -369,7 +368,7 @@ def build_score_tables(metrics: dict, active_subsets: dict):
 def plot_lollipop_by_country(
     df_results, df_country_results, countries, metric, metric_label, save_dir=None
 ):
-    """Plot lollipop chart of results by country. Used for auto-evaluation in 02_run_selections.py"""
+    """Plot lollipop chart of results by country. Used for auto-evaluation in 02a_run_all_selection_methods.py"""
     # take 5 best SA selections
     idx_best = df_results.sort_values(metric).index[:5]
     df_best = df_results.loc[idx_best]
@@ -394,7 +393,9 @@ def plot_lollipop_by_country(
             df_country[["model_years", metric]], on="model_years"
         )[f"{metric}_y"].to_numpy()
 
-        rnd = df_country.query("selection_source == 'random_draws'")[f"{metric}"].mean()
+        rnd = df_country.query("selection_source == 'random_search'")[
+            f"{metric}"
+        ].mean()
 
         k_med = df_country.query("selection_source == 'k_medoids'")[f"{metric}"].values[
             0
@@ -411,7 +412,7 @@ def plot_lollipop_by_country(
         link_colors = np.where(better, "green", "red")
 
         ax.hlines(i, x_min, x_max, linewidth=1, colors=link_colors, alpha=0.9)
-        ax.scatter(rnd, i, color="red", label="Random Draws" if i == 0 else None)
+        ax.scatter(rnd, i, color="red", label="Random Search" if i == 0 else None)
         ax.scatter(
             k_med,
             i,
@@ -448,7 +449,7 @@ def plot_lollipop_by_country(
 
 
 ### Physical Evaluation ###
-# Automatic evaluation in 02_run_selections.py.
+# Automatic evaluation in 02a_run_all_selection_methods.py.
 # Only used as diagnostic, not for final paper figures.
 # TODO: Some overlap here with functions from above used in  03_evaluation_plots.py, Have to consider merging or at least reusing code between these two files.
 

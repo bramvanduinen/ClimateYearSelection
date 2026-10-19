@@ -1,24 +1,35 @@
+"""
+Download the PECD 4.2 climate and energy data from the Copernicus Climate Data Store.
+
+Downloads wind and solar capacity factors, 2 m temperature and hydropower generation
+for all MODELS and YEARS (see constants.py), SSP2-4.5 future projections. Files are
+unzipped into the INPUT_DIR_* folders set in RUN_SETTINGS.py.
+
+Requires a CDS account and API key, see https://cds.climate.copernicus.eu/how-to-api
+Only needs to be run once; downloading all files can take a long time.
+"""
+
 # %%
 import shutil
 from pathlib import Path
 
 import cdsapi
 
-from cluster_weather_years.constants import BASE_INPUT
+# pylint: disable=import-error
+from RUN_SETTINGS import (
+    INPUT_DIR_HYDRO_RAW,
+    INPUT_DIR_SOLAR,
+    INPUT_DIR_TEMP,
+    INPUT_DIR_WIND_RAW,
+)
+
+from climate_year_selection.constants import MODELS, YEARS
+
+# pylint: enable=import-error
 
 # %%
 # build requests and output dirs
 dataset = "sis-energy-pecd"
-# yearrange = range(2015, 2045)
-yearrange = range(2016, 2047)  # hydrological years 2016-2045 covered
-models = [
-    "cmcc_cm2_sr5",
-    "ec_earth3",
-    "mpi_esm1_2_hr",
-    "awi_cm_1_1_mr",
-    "bcc_csm2_mr",
-    "mri_esm2_0",
-]
 
 request_wind = {
     "energy_scenario": ["resource_grade_b"],
@@ -30,13 +41,9 @@ request_wind = {
     "spatial_resolution": ["peof", "peon"],
 }
 
-# request_temp = {
-#     "variable": ["2m_temperature", "nuts_0_region_mask"],
-#     "spatial_resolution": ["nuts_0"],
-# }
-request_taw = {
-    "variable": ["population_weighted_temperature"],
-    "spatial_resolution": ["szon"],
+request_temp = {
+    "variable": ["2m_temperature", "nuts_0_region_mask"],
+    "spatial_resolution": ["nuts_0"],
 }
 
 request_solar = {
@@ -56,27 +63,25 @@ request_hydro = {
     "spatial_resolution": ["szon"],
 }
 
-output_dir_wind = Path(f"{BASE_INPUT}/pecd_data/energy/wind_peof_peon")
-output_dir_wind.mkdir(exist_ok=True)
-output_dir_solar = Path(f"{BASE_INPUT}/pecd_data/energy/solar")
-output_dir_solar.mkdir(exist_ok=True)
-# output_dir_temp = Path(f"{BASE_INPUT}/pecd_data/energy/temp")
-# output_dir_temp.mkdir(exist_ok=True)
-output_dir_taw = Path(f"{BASE_INPUT}/pecd_data/energy/taw")
-output_dir_taw.mkdir(exists_ok=True)
-output_dir_hydro = Path(f"{BASE_INPUT}/pecd_data/energy/hydro_weekly")
-output_dir_hydro.mkdir(exist_ok=True)
+output_dir_wind = Path(INPUT_DIR_WIND_RAW)
+output_dir_wind.mkdir(parents=True, exist_ok=True)
+output_dir_solar = Path(INPUT_DIR_SOLAR)
+output_dir_solar.mkdir(parents=True, exist_ok=True)
+output_dir_temp = Path(INPUT_DIR_TEMP)
+output_dir_temp.mkdir(parents=True, exist_ok=True)
+output_dir_hydro = Path(INPUT_DIR_HYDRO_RAW)
+output_dir_hydro.mkdir(parents=True, exist_ok=True)
 
 client = cdsapi.Client()
 
-requests = [request_wind, request_solar, request_hydro, request_taw]
-output_dirs = [output_dir_wind, output_dir_solar, output_dir_hydro, output_dir_taw]
+requests = [request_wind, request_solar, request_hydro, request_temp]
+output_dirs = [output_dir_wind, output_dir_solar, output_dir_hydro, output_dir_temp]
 
 # %%
 # download data
-for model in models:
+for model in MODELS:
     print("Retrieving model:", model)
-    for year in map(str, yearrange):
+    for year in map(str, YEARS):
         print("Retrieving year:", year)
         for request, output_dir in zip(requests, output_dirs):
             if (

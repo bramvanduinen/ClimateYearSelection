@@ -24,14 +24,14 @@ from matplotlib.lines import Line2D
 from matplotlib.patches import Patch
 from tqdm import tqdm
 
-from cluster_weather_years.constants import MODELS, PROBS, SEASONS
-from cluster_weather_years.cost_functions import wasserstein_seasonal_score
-from cluster_weather_years.evaluation import (
+from climate_year_selection.constants import MODELS, PROBS, SEASONS
+from climate_year_selection.cost_functions import wasserstein_seasonal_score
+from climate_year_selection.evaluation import (
     _ecdf,
     _filter_season,
     _qq_diff_and_mae,
 )
-from cluster_weather_years.filtered_random_search import build_random_df
+from climate_year_selection.filtered_random_search import build_random_df
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Method display config
