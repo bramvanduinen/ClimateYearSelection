@@ -1,5 +1,7 @@
 # Climate Year Selection
 
+[![DOI](https://img.shields.io/badge/DOI-10.1016%2Fj.apenergy.2026.129090-blue)](https://doi.org/10.1016/j.apenergy.2026.129090)
+
 ## Description
 
 Method to select a small subset of representative climate years from a large multi-model climate simulation ensemble, for use in energy system impact studies. It matches distributional properties of key energy-impact variables (wind, solar, hydro, demand and residual load) across one or more countries. The paper compares four selection algorithms: Simulated Annealing (SA), K-Medoids, Filtered Random Search (FRS), and Random Search (RS). SA performed best and is the recommended method.
@@ -14,8 +16,8 @@ This code accompanies the paper:
 
 > Bram van Duinen, Karin van der Wiel, Jean Thorey, Laurens Stoop.
 > *Bridging the climate to energy data gap: simulated annealing for representative climate year selection.*
-> Accepted for publication in **Applied Energy**.
-> Preprint: https://doi.org/10.48550/arXiv.2605.15958
+> **Applied Energy** 427 (2027) 129090.
+> https://doi.org/10.1016/j.apenergy.2026.129090
 
 If you use this code, please cite the paper above (see also `CITATION.cff`).
 

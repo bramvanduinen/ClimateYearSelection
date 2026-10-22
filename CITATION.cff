@@ -22,9 +22,7 @@ preferred-citation:
     - family-names: "Stoop"
       given-names: "Laurens"
   journal: "Applied Energy"
-  year: 2026
-  # TODO: add the journal DOI once published. Until then, the arXiv preprint:
-  identifiers:
-    - type: doi
-      value: "10.48550/arXiv.2605.15958"
-      description: "arXiv preprint"
+  volume: 427
+  start: 129090
+  year: 2027
+  doi: "10.1016/j.apenergy.2026.129090"
